@@ -29,12 +29,23 @@ Buka `http://localhost:8080`. Jika `API_URL` pada awal `app.js` kosong, aplikasi
 1. Buat project Apps Script.
 2. Salin `Code.gs` dan `appsscript.json` ke project tersebut.
 3. Jalankan `setupProject()` satu kali sebagai pemilik dan berikan izin Sheets/Drive.
-4. Deploy sebagai Web App dengan akses terbatas Google Workspace dan identitas pengguna yang dapat diverifikasi.
-5. Bootstrap Super Admin satu kali melalui fungsi `bootstrap_(email, displayName)` dari editor Apps Script.
-6. Tambahkan user lain pada sheet `Users` dengan role `SUPER_ADMIN`, `ADMIN`, `OPERATOR`, atau `VIEWER`.
+4. Jalankan `previewUsersMigration()` untuk memeriksa header dan baris Users tanpa mengubah data.
+5. Rapikan sheet `Users` secara manual menjadi delapan kolom sebelum bootstrap.
+6. Jalankan `bootstrapAppUser("admin", "Nama Admin")` satu kali dari editor Apps Script sebagai pemilik.
 7. Salin URL `/exec` deployment ke konstanta `API_URL` di `app.js`.
 
-Jangan deploy anonim. `Session.getActiveUser()` tidak selalu mengembalikan email untuk Gmail pribadi; gunakan konfigurasi Google Workspace yang mendukung identitas pengguna.
+Login memakai username-only dan tidak memakai akun Google atau password. Model ini tidak membuktikan identitas pemegang username; siapa pun yang mengetahui username dapat menyamar sebagai akun tersebut. Gunakan deployment dan akses spreadsheet sesuai kebijakan organisasi.
+
+## Login aplikasi dan manajemen pengguna
+
+1. Sheet `Users` harus memiliki: `user_id`, `username`, `display_name`, `role`, `active`, `created_at`, `updated_at`, `created_by`.
+2. Bootstrap hanya dilakukan melalui fungsi editor Apps Script dan tidak tersedia sebagai action API publik.
+3. `SUPER_ADMIN` hanya mengelola username. Pengguna baru dari dashboard selalu berrole `ADMIN`.
+4. `ADMIN` hanya menjalankan operasional THR dan transaksi.
+5. Token sesi disimpan di backend selama enam jam dan diverifikasi pada setiap endpoint privat.
+6. Nonaktifkan akun dari dashboard untuk menolak login dan sesi lama.
+
+Akun lama dengan header tergabung tidak dimigrasikan otomatis. Tinjau hasil `previewUsersMigration()` dan perbaiki sheet secara manual agar data lama tidak tertukar.
 
 ## Keamanan dan data
 
@@ -43,11 +54,12 @@ Role diverifikasi backend, bukan dari browser atau `localStorage`. Foto divalida
 ## Pengujian
 
 - `node --check app.js`
+- `node tests/thr.test.js` — pengujian lokal mock untuk analisis Users, nilai active, role, sesi, endpoint, idempotency, upload gagal, dan penghapusan berdasarkan header.
 - `git diff --check`
 - Jalankan static server, uji navigasi, upload JPG/PNG/WebP, penolakan file >5 MB, preview, kembali antar langkah, validasi form, retry, dan mode demo.
 - Setelah backend tersedia, uji akun setiap role, transaksi ganda, upload gagal, akses tanpa izin, dan audit log.
 
-Integrasi Google dan deployment tidak diklaim berhasil sebelum diuji pada project Apps Script pemilik.
+Integrasi Google, Sheets, Drive, dan deployment tidak diklaim berhasil sebelum diuji pada project Apps Script pemilik. Test lokal tidak menulis spreadsheet produksi.
 
 ## Format Google Sheets
 

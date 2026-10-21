@@ -8,6 +8,10 @@
     photo: "",
     records: [],
     loading: false,
+    session_token: "",
+    user: null,
+    users: [],
+    user_filter: { query: "", role: "", active: "" },
     form: { name: "", item: "", officer: "", notes: "" },
   };
   const $ = (q) => document.querySelector(q),
@@ -46,24 +50,36 @@
     const r = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ action, ...p }),
+        body: JSON.stringify({ action, session_token: s.session_token, ...p }),
       }),
       d = await r.json();
     if (!d.ok) throw Error(d.error || "Permintaan gagal.");
     return d;
+  }
+  function login() {
+    return `<main class="login"><form id="login-form" class="card"><div class="brand"><span class="brand-mark">T</span>THR <b>Management</b></div><h1>Masuk</h1><p class="muted">Masukkan username untuk masuk.</p><label class="field">Username<input id="login-username" autocomplete="username" required></label><button class="primary">Masuk</button></form></main>`;
+  }
+  function usersPage() {
+    const f = s.user_filter;
+    const list = s.users.filter((u) => (!f.query || `${u.username} ${u.display_name}`.toLowerCase().includes(f.query)) && (!f.role || u.role === f.role) && (f.active === "" || String(u.active) === f.active));
+    return `<section><div class="toolbar"><div><h2>Manajemen Pengguna</h2><p class="muted">Khusus SUPER_ADMIN.</p></div><button class="primary" id="add-user">＋ Tambah Pengguna</button></div><div class="stats"><div class="stat"><span>Total pengguna</span><strong>${s.users.length}</strong></div><div class="stat"><span>Aktif</span><strong>${s.users.filter((u) => u.active).length}</strong></div><div class="stat"><span>Nonaktif</span><strong>${s.users.filter((u) => !u.active).length}</strong></div></div><div class="toolbar"><input class="search" id="user-search" placeholder="Cari username atau nama" value="${esc(f.query)}"><select id="user-role"><option value="">Semua role</option>${["ADMIN"].map((r) => `<option value="${r}" ${f.role === r ? "selected" : ""}>${r}</option>`).join("")}</select><select id="user-active"><option value="">Semua status</option><option value="true" ${f.active === "true" ? "selected" : ""}>Aktif</option><option value="false" ${f.active === "false" ? "selected" : ""}>Nonaktif</option></select></div><div class="table">${list.map((u) => `<div class="row user-row"><b>${esc(u.username)}</b><span>${esc(u.display_name)}</span><span>${esc(u.role)}</span><span class="badge">${u.active ? "ACTIVE" : "INACTIVE"}</span><button class="secondary edit-user" data-id="${esc(u.user_id)}">Edit</button></div>`).join("") || '<div class="empty">Tidak ada pengguna.</div>'}</div></section>`;
+  }
+  function userForm(u = {}) {
+    return `<section><div class="card"><h2>${u.user_id ? "Edit" : "Tambah"} Pengguna</h2><form id="user-form"><label class="field">Username<input id="u-username" required pattern="[a-z0-9._-]{3,40}" value="${esc(u.username || "")}" ${u.user_id ? "readonly" : ""}></label><label class="field">Nama lengkap<input id="u-name" required value="${esc(u.display_name || "")}"></label><label class="field">Role<select id="u-role">${["ADMIN"].map((r) => `<option ${u.role === r ? "selected" : ""}>${r}</option>`).join("")}</select></label><label class="field">Status<select id="u-active"><option value="true" ${u.active !== false ? "selected" : ""}>Aktif</option><option value="false" ${u.active === false ? "selected" : ""}>Nonaktif</option></select></label><div class="actions"><button type="button" class="secondary" id="cancel-user">Batal</button><button class="primary">Simpan</button></div></form></div></section>`;
   }
   function shell() {
     return `<div class="layout"><aside class="sidebar"><div class="brand"><span class="brand-mark">T</span>THR <b>Management</b></div><div class="side-label">WORKSPACE</div>${[
       ["dashboard", "Dashboard", "▦"],
       ["input", "Catat THR", "＋"],
       ["history", "Daftar Penerima", "▤"],
-      ["users", "Pengguna", "♙"],
+      ...(s.user?.role === "SUPER_ADMIN" ? [["users", "Manajemen Pengguna", "♙"]] : []),
       ["audit", "Audit Log", "◷"],
       ["settings", "Pengaturan", "⚙"],
+      ["logout", "Keluar", "↪"],
     ]
       .map(
         (x) =>
-          `<button class="nav ${s.page === x[0] ? "active" : ""}" data-page="${x[0]}">${x[2]} <span>${x[1]}</span></button>`,
+          `<button class="nav ${s.page === x[0] ? "active" : ""}" ${x[0] === "logout" ? 'id="logout"' : ""} data-page="${x[0]}">${x[2]} <span>${x[1]}</span></button>`,
       )
       .join(
         "",
@@ -100,7 +116,30 @@
       b = `<div class="card"><img class="preview" src="${s.photo}" alt="Foto bukti"><p><b>${esc(f.name)}</b> menerima <b>${esc(f.item)}</b>, diserahkan oleh <b>${esc(f.officer)}</b>.</p><div class="actions"><button class="secondary" id="back-data">Kembali</button><button class="primary" id="save" ${s.loading ? "disabled" : ""}>${s.loading ? "Menyimpan…" : "Simpan"}</button></div></div>`;
     return `<section><h2>Catat penyerahan THR</h2><p class="muted">Ikuti langkah foto, data penerima, dan konfirmasi.</p><div class="steps"><span class="step on">1 Foto</span><span class="step ${s.step > 1 ? "on" : ""}">2 Data</span><span class="step ${s.step > 2 ? "on" : ""}">3 Simpan</span></div>${b}</section>`;
   }
+  function renderUserForm() {
+    const u = s.edit_user || {};
+    $("#view").innerHTML = userForm(u);
+  }
+  async function loadUsers() {
+    s.users = (await api("users")).data || [];
+  }
+  async function saveUser(e) {
+    e.preventDefault();
+    if (!confirm(s.edit_user ? "Simpan perubahan pengguna?" : "Buat pengguna baru?")) return;
+    try {
+      await api("save_user", { user_id: s.edit_user?.user_id, username: $("#u-username").value, display_name: $("#u-name").value, role: $("#u-role").value, active: $("#u-active").value === "true" });
+      toast("Pengguna berhasil disimpan.");
+      s.edit_user = null;
+      await loadUsers();
+      render();
+    } catch (x) { toast(x.message); }
+  }
   async function render() {
+    if (!s.session_token || !s.user) {
+      document.querySelector("#app").innerHTML = login();
+      bind();
+      return;
+    }
     document.querySelector("#app").innerHTML = shell();
     let v = $("#view");
     v.innerHTML =
@@ -111,10 +150,7 @@
           : s.page === "history"
             ? history()
             : s.page === "users"
-              ? simple(
-                  "Pengaturan pengguna",
-                  "Kelola role dan status akun sebagai SUPER_ADMIN.",
-                )
+              ? usersPage()
               : s.page === "audit"
                 ? simple(
                     "Audit log",
@@ -130,11 +166,38 @@
     document.querySelectorAll("[data-page]").forEach(
       (b) =>
         (b.onclick = async () => {
+          if (b.id === "logout") return;
           s.page = b.dataset.page;
           if (s.page === "history") await load();
+          if (s.page === "users") await loadUsers();
           render();
         }),
     );
+    if ($("#login-form"))
+      $("#login-form").onsubmit = async (e) => {
+        e.preventDefault();
+        try {
+          const d = await api("login", { username: $("#login-username").value });
+          s.session_token = d.session_token;
+          s.user = d.user;
+          s.page = "dashboard";
+          render();
+        } catch (x) { toast(x.message); }
+      };
+    if ($("#logout"))
+      $("#logout").onclick = async () => {
+        await api("logout").catch(() => {});
+        s.session_token = "";
+        s.user = null;
+        render();
+      };
+    if ($("#add-user")) $("#add-user").onclick = () => { s.edit_user = null; renderUserForm(); };
+    document.querySelectorAll(".edit-user").forEach((b) => b.onclick = () => { s.edit_user = s.users.find((u) => u.user_id === b.dataset.id); renderUserForm(); });
+    ["user-search", "user-role", "user-active"].forEach((id) => {
+      if ($("#" + id)) $("#" + id).oninput = (e) => { s.user_filter[id === "user-search" ? "query" : id === "user-role" ? "role" : "active"] = e.target.value.toLowerCase(); render(); };
+    });
+    if ($("#user-form")) $("#user-form").onsubmit = saveUser;
+    if ($("#cancel-user")) $("#cancel-user").onclick = () => { s.edit_user = null; render(); };
     let p = $("#photo");
     if (p)
       p.onchange = (e) => {
@@ -238,5 +301,5 @@
       toast(e.message);
     }
   }
-  load().then(render);
+  render();
 })();
