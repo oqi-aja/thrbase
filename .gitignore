@@ -4,5 +4,4 @@ dist/
 .env.*
 !.env.example
 *.gs.json
-*.tsbuildinfo
 .DS_Store
