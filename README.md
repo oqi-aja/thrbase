@@ -54,7 +54,6 @@ Role diverifikasi backend, bukan dari browser atau `localStorage`. Foto divalida
 ## Pengujian
 
 - `node --check app.js`
-- `node tests/thr.test.js` — pengujian lokal mock untuk analisis Users, nilai active, role, sesi, endpoint, idempotency, upload gagal, dan penghapusan berdasarkan header.
 - `git diff --check`
 - Jalankan static server, uji navigasi, upload JPG/PNG/WebP, penolakan file >5 MB, preview, kembali antar langkah, validasi form, retry, dan mode demo.
 - Setelah backend tersedia, uji akun setiap role, transaksi ganda, upload gagal, akses tanpa izin, dan audit log.
