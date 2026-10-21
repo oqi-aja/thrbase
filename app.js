@@ -33,6 +33,41 @@
       e.classList.add("show");
       setTimeout(() => e.classList.remove("show"), 3500);
     };
+  const SESSION_KEY = "thr_session";
+  function normalizeUser(user) {
+    return user ? { ...user, role: String(user.role || "").trim().toUpperCase() } : null;
+  }
+  function persistSession() {
+    if (!s.session_token || !s.user) return;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ session_token: s.session_token, user: normalizeUser(s.user) }));
+  }
+  function restoreSession() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+      if (!saved?.session_token || !saved.user) return false;
+      s.session_token = saved.session_token;
+      s.user = normalizeUser(saved.user);
+      s.page = s.user.role === "SUPER_ADMIN" ? "users" : "dashboard";
+      return true;
+    } catch (_) {
+      localStorage.removeItem(SESSION_KEY);
+      return false;
+    }
+  }
+  function clearSession(message) {
+    s.session_token = "";
+    s.user = null;
+    s.users = [];
+    s.page = "dashboard";
+    localStorage.removeItem(SESSION_KEY);
+    if (message) toast(message);
+    render();
+  }
+  function isSessionError(error) {
+    const code = String(error?.code || "").toUpperCase();
+    const message = String(error?.message || error || "");
+    return ["SESSION_INVALID", "SESSION_EXPIRED", "INVALID_SESSION", "SESSION_REQUIRED"].includes(code) || /sesi (?:tidak valid|sudah kedaluwarsa|login diperlukan)/i.test(message);
+  }
   async function api(action, p = {}) {
     if (!API_URL)
       return action === "list"
@@ -53,19 +88,27 @@
         body: JSON.stringify({ action, session_token: s.session_token, ...p }),
       }),
       d = await r.json();
-    if (!d.ok) throw Error(d.error || "Permintaan gagal.");
+    if (!d.ok) {
+      const error = Error(d.error || "Permintaan gagal.");
+      error.code = d.code || "API_ERROR";
+      throw error;
+    }
     return d;
   }
   function login() {
     return `<main class="login"><form id="login-form" class="card"><div class="brand"><span class="brand-mark">T</span>THR <b>Management</b></div><h1>Masuk</h1><p class="muted">Masukkan username untuk masuk.</p><label class="field">Username<input id="login-username" autocomplete="username" required></label><button class="primary">Masuk</button></form></main>`;
   }
   function usersPage() {
+    if (!s.user || s.user.role !== "SUPER_ADMIN") return simple("Akses ditolak", "Halaman ini hanya dapat dibuka oleh SUPER_ADMIN.");
     const f = s.user_filter;
+    if (s.loading) return `<section><div class="toolbar"><div><p class="eyebrow">ADMINISTRATION</p><h2>Dashboard Super Admin</h2><p class="muted">Memuat daftar akun…</p></div></div><div class="card empty loading-state">Memuat pengguna…</div></section>`;
     const list = s.users.filter((u) => (!f.query || `${u.username} ${u.display_name}`.toLowerCase().includes(f.query)) && (!f.role || u.role === f.role) && (f.active === "" || String(u.active) === f.active));
-    return `<section><div class="toolbar"><div><h2>Manajemen Pengguna</h2><p class="muted">Khusus SUPER_ADMIN.</p></div><button class="primary" id="add-user">＋ Tambah Pengguna</button></div><div class="stats"><div class="stat"><span>Total pengguna</span><strong>${s.users.length}</strong></div><div class="stat"><span>Aktif</span><strong>${s.users.filter((u) => u.active).length}</strong></div><div class="stat"><span>Nonaktif</span><strong>${s.users.filter((u) => !u.active).length}</strong></div></div><div class="toolbar"><input class="search" id="user-search" placeholder="Cari username atau nama" value="${esc(f.query)}"><select id="user-role"><option value="">Semua role</option>${["ADMIN"].map((r) => `<option value="${r}" ${f.role === r ? "selected" : ""}>${r}</option>`).join("")}</select><select id="user-active"><option value="">Semua status</option><option value="true" ${f.active === "true" ? "selected" : ""}>Aktif</option><option value="false" ${f.active === "false" ? "selected" : ""}>Nonaktif</option></select></div><div class="table">${list.map((u) => `<div class="row user-row"><b>${esc(u.username)}</b><span>${esc(u.display_name)}</span><span>${esc(u.role)}</span><span class="badge">${u.active ? "ACTIVE" : "INACTIVE"}</span><button class="secondary edit-user" data-id="${esc(u.user_id)}">Edit</button></div>`).join("") || '<div class="empty">Tidak ada pengguna.</div>'}</div></section>`;
+    const rowsHtml = list.map((u, i) => `<div class="row user-row"><span>${i + 1}</span><b>${esc(u.username)}</b><span>${esc(u.display_name)}</span><span>${esc(u.role)}</span><span class="badge">${u.active ? "ACTIVE" : "INACTIVE"}</span><button class="secondary edit-user" data-id="${esc(u.user_id)}">Edit</button></div>`).join("");
+    return `<section><div class="toolbar"><div><p class="eyebrow">ADMINISTRATION</p><h2>Dashboard Super Admin</h2><p class="muted">${esc(s.user.username)} · ${esc(s.user.display_name)}</p></div><button class="primary" id="add-user">＋ Tambah Pengguna</button></div><div class="stats"><div class="stat"><span>Total akun</span><strong>${s.users.length}</strong></div><div class="stat"><span>Aktif</span><strong>${s.users.filter((u) => u.active).length}</strong></div><div class="stat"><span>Nonaktif</span><strong>${s.users.filter((u) => !u.active).length}</strong></div></div><div class="toolbar"><input class="search" id="user-search" placeholder="Cari username atau nama" value="${esc(f.query)}"><select id="user-role"><option value="">Semua role</option>${["ADMIN", "SUPER_ADMIN"].map((r) => `<option value="${r}" ${f.role === r ? "selected" : ""}>${r}</option>`).join("")}</select><select id="user-active"><option value="">Semua status</option><option value="true" ${f.active === "true" ? "selected" : ""}>Aktif</option><option value="false" ${f.active === "false" ? "selected" : ""}>Nonaktif</option></select></div><div class="table user-table"><div class="row user-row user-head"><span>No.</span><span>Username</span><span>Nama pengguna</span><span>Role</span><span>Status</span><span>Aksi</span></div>${rowsHtml || '<div class="empty">Belum ada pengguna.</div>'}</div></section>`;
   }
   function userForm(u = {}) {
-    return `<section><div class="card"><h2>${u.user_id ? "Edit" : "Tambah"} Pengguna</h2><form id="user-form"><label class="field">Username<input id="u-username" required pattern="[a-z0-9._-]{3,40}" value="${esc(u.username || "")}" ${u.user_id ? "readonly" : ""}></label><label class="field">Nama lengkap<input id="u-name" required value="${esc(u.display_name || "")}"></label><label class="field">Role<select id="u-role">${["ADMIN"].map((r) => `<option ${u.role === r ? "selected" : ""}>${r}</option>`).join("")}</select></label><label class="field">Status<select id="u-active"><option value="true" ${u.active !== false ? "selected" : ""}>Aktif</option><option value="false" ${u.active === false ? "selected" : ""}>Nonaktif</option></select></label><div class="actions"><button type="button" class="secondary" id="cancel-user">Batal</button><button class="primary">Simpan</button></div></form></div></section>`;
+    const edit = Boolean(u.user_id);
+    return `<section><div class="card"><p class="eyebrow">${edit ? "EDIT AKUN" : "AKUN BARU"}</p><h2>${edit ? "Edit pengguna" : "Tambah akun"}</h2><p class="muted">${edit ? "Perbarui data akun pengguna." : "Akun baru dibuat sebagai ADMIN aktif."}</p><form id="user-form"><label class="field">Username<input id="u-username" required pattern="[a-z0-9._-]{3,40}" minlength="3" maxlength="40" value="${esc(u.username || "")}" ${edit ? "readonly" : ""}></label><label class="field">Nama pengguna<input id="u-name" required maxlength="120" value="${esc(u.display_name || "")}"></label>${edit ? `<label class="field">Role<select id="u-role"><option ${u.role === "ADMIN" ? "selected" : ""}>ADMIN</option><option ${u.role === "SUPER_ADMIN" ? "selected" : ""}>SUPER_ADMIN</option></select></label><label class="field">Status<select id="u-active"><option value="true" ${u.active !== false ? "selected" : ""}>Aktif</option><option value="false" ${u.active === false ? "selected" : ""}>Nonaktif</option></select></label>` : ""}<div class="actions"><button type="button" class="secondary" id="cancel-user">Batal</button><button class="primary" ${s.loading ? "disabled" : ""}>${s.loading ? "Menyimpan…" : "Simpan"}</button></div></form></div></section>`;
   }
   function shell() {
     return `<div class="layout"><aside class="sidebar"><div class="brand"><span class="brand-mark">T</span>THR <b>Management</b></div><div class="side-label">WORKSPACE</div>${[
@@ -121,18 +164,37 @@
     $("#view").innerHTML = userForm(u);
   }
   async function loadUsers() {
-    s.users = (await api("users")).data || [];
+    if (!s.user || s.user.role !== "SUPER_ADMIN") return;
+    s.loading = true;
+    try {
+      s.users = (await api("users")).data || [];
+    } catch (x) {
+      if (isSessionError(x)) clearSession("Sesi berakhir. Silakan masuk kembali.");
+      else toast(x.message);
+    } finally {
+      s.loading = false;
+    }
   }
   async function saveUser(e) {
     e.preventDefault();
-    if (!confirm(s.edit_user ? "Simpan perubahan pengguna?" : "Buat pengguna baru?")) return;
+    if (s.loading || !s.user || s.user.role !== "SUPER_ADMIN") return;
+    const edit = Boolean(s.edit_user);
+    if (!confirm(edit ? "Simpan perubahan pengguna?" : "Buat pengguna baru?")) return;
+    s.loading = true;
+    renderUserForm();
     try {
-      await api("save_user", { user_id: s.edit_user?.user_id, username: $("#u-username").value, display_name: $("#u-name").value, role: $("#u-role").value, active: $("#u-active").value === "true" });
-      toast("Pengguna berhasil disimpan.");
+      await api("save_user", { user_id: s.edit_user?.user_id, username: $("#u-username").value.trim(), display_name: $("#u-name").value.trim(), role: edit ? $("#u-role").value : "ADMIN", active: edit ? $("#u-active").value === "true" : true });
       s.edit_user = null;
       await loadUsers();
+      toast("Pengguna berhasil disimpan.");
       render();
-    } catch (x) { toast(x.message); }
+    } catch (x) {
+      if (isSessionError(x)) clearSession("Sesi berakhir. Silakan masuk kembali.");
+      else toast(x.message);
+    } finally {
+      s.loading = false;
+      render();
+    }
   }
   async function render() {
     if (!s.session_token || !s.user) {
@@ -140,6 +202,7 @@
       bind();
       return;
     }
+    if (s.page === "users" && s.user.role !== "SUPER_ADMIN") s.page = "dashboard";
     document.querySelector("#app").innerHTML = shell();
     let v = $("#view");
     v.innerHTML =
@@ -178,18 +241,19 @@
         e.preventDefault();
         try {
           const d = await api("login", { username: $("#login-username").value });
+          const role = String(d.user?.role || "").trim().toUpperCase();
           s.session_token = d.session_token;
-          s.user = d.user;
-          s.page = "dashboard";
+          s.user = normalizeUser(d.user);
+          s.page = role === "SUPER_ADMIN" ? "users" : "dashboard";
+          persistSession();
+          if (role === "SUPER_ADMIN") await loadUsers();
           render();
         } catch (x) { toast(x.message); }
       };
     if ($("#logout"))
       $("#logout").onclick = async () => {
         await api("logout").catch(() => {});
-        s.session_token = "";
-        s.user = null;
-        render();
+        clearSession();
       };
     if ($("#add-user")) $("#add-user").onclick = () => { s.edit_user = null; renderUserForm(); };
     document.querySelectorAll(".edit-user").forEach((b) => b.onclick = () => { s.edit_user = s.users.find((u) => u.user_id === b.dataset.id); renderUserForm(); });
@@ -265,6 +329,20 @@
       toast(e.message);
     }
   }
+  async function restoreAndValidateSession() {
+    if (!restoreSession()) return render();
+    try {
+      if (s.user.role === "SUPER_ADMIN") await loadUsers();
+      else await api("list");
+      render();
+    } catch (error) {
+      if (isSessionError(error)) clearSession("Sesi berakhir. Silakan masuk kembali.");
+      else {
+        toast("Koneksi gagal. Sesi tetap disimpan; coba lagi.");
+        render();
+      }
+    }
+  }
   async function save() {
     s.loading = true;
     render();
@@ -301,5 +379,5 @@
       toast(e.message);
     }
   }
-  render();
+  restoreAndValidateSession();
 })();

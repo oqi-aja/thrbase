@@ -64,6 +64,12 @@ function json_(x) {
 function publicUser_(u) {
   return { user_id: u.user_id, username: u.username, display_name: u.display_name, role: u.role, active: u.active };
 }
+function normalizeHeader_(v) {
+  return String(v || "").trim().toLowerCase();
+}
+function username_(v) {
+  return String(v || "").trim().toLowerCase();
+}
 function bool_(v) {
   return v === true || ["true", "1", "yes", "ya", "aktif"].includes(String(v).trim().toLowerCase());
 }
@@ -72,7 +78,7 @@ function role_(v) {
   return ["SUPER_ADMIN", "ADMIN"].includes(value) ? value : "";
 }
 function userRows_() {
-  return rows_("Users").map((u) => ({ ...u, active: bool_(u.active), role: role_(u.role) }));
+  return rows_("Users").map((u) => ({ ...u, username: username_(u.username), active: bool_(u.active), role: role_(u.role) }));
 }
 function session_(token) {
   if (!token) throw Error("Sesi login diperlukan.");
@@ -93,14 +99,16 @@ function requireSession_(body, roles) {
   return u;
 }
 function analyzeUsersMigration_(values) {
-  const headers = (values[0] || []).map((h) => String(h).trim());
-  const normalized = headers.map((h) => h.toLowerCase());
+  const headers = (values[0] || []).map(normalizeHeader_);
+  const normalized = headers;
   const index = Object.fromEntries(headers.map((h, i) => [h, i]));
   const target = APP.SHEETS.Users;
   const mergedHeaders = headers.filter((h) => /\s+/.test(h) && !target.includes(h));
   const usernameSources = ["username", "user_name", "login", "email", "password", "password_hash", "password_salt"]
     .filter((h) => normalized.includes(h));
   const conflicts = [];
+  const duplicateHeaders = headers.filter((h, i) => h && headers.indexOf(h) !== i);
+  if (duplicateHeaders.length) conflicts.push({ type: "duplicate_header", headers: [...new Set(duplicateHeaders)] });
   if (mergedHeaders.length) conflicts.push({ type: "merged_header", headers: mergedHeaders });
   if (usernameSources.includes("email") && !usernameSources.includes("username")) conflicts.push({ type: "email_not_username" });
   if (usernameSources.some((h) => ["password", "password_hash", "password_salt"].includes(h))) conflicts.push({ type: "password_not_username" });
@@ -118,7 +126,12 @@ function analyzeUsersMigration_(values) {
     return { row: n + 2, username, role, active: activeKnown ? bool_(rawActive) : null };
   });
   const seen = {};
-  rows.forEach((r) => { if (r.username) (seen[r.username] ||= []).push(r.row); });
+  rows.forEach((r) => {
+    if (r.username) {
+      if (!seen[r.username]) seen[r.username] = [];
+      seen[r.username].push(r.row);
+    }
+  });
   Object.entries(seen).forEach(([username, rowNumbers]) => { if (rowNumbers.length > 1) conflicts.push({ type: "duplicate_username", username, rows: rowNumbers }); });
   return { headers, rows, target, mergedHeaders, usernameSources, conflicts, safe: headers.length === target.length && target.every((h) => index[h] !== undefined) && conflicts.length === 0 };
 }
@@ -144,9 +157,11 @@ function bootstrapAppUser(username, displayName) {
   return { ok: true };
 }
 function login_(b) {
-  const username = String(b.username || "").trim().toLowerCase();
+  const username = username_(b.username);
   if (!username) throw Error("Username wajib diisi.");
-  const u = userRows_().find((x) => String(x.username || "").toLowerCase() === username);
+  const matches = userRows_().filter((x) => username_(x.username) === username);
+  if (matches.length > 1) throw Error("Konfigurasi Users ambigu: username duplikat setelah normalisasi.");
+  const u = matches[0];
   if (!u) throw Error("Username tidak ditemukan.");
   if (u.active !== true) throw Error("Akun tidak aktif.");
   const token = Utilities.getUuid() + Utilities.getUuid().replace(/-/g, ""), expires = Date.now() + APP.SESSION_TTL;
@@ -158,11 +173,11 @@ function users_(b) {
   return { ok: true, data: userRows_().map(publicUser_) };
 }
 function saveUser_(b) {
-  const actor = requireSession_(b, ["SUPER_ADMIN"]), username = String(b.username || "").trim().toLowerCase(), name = String(b.display_name || "").trim();
+  const actor = requireSession_(b, ["SUPER_ADMIN"]), username = username_(b.username), name = String(b.display_name || "").trim();
   if (!/^[a-z0-9._-]{3,40}$/.test(username) || !name) throw Error("Data pengguna tidak valid.");
   const role = b.user_id ? role_(b.role) : "ADMIN";
   if (!role || (role === "SUPER_ADMIN" && b.user_id !== actor.user_id)) throw Error("Role pengguna tidak diizinkan.");
-  const s = sheet_("Users"), values = s.getDataRange().getValues(), headers = values[0].map((h) => String(h).trim()), idx = Object.fromEntries(headers.map((h, i) => [h, i]));
+  const s = sheet_("Users"), values = s.getDataRange().getValues(), headers = headerMap_(values, "Users"), idx = Object.fromEntries(headers.map((h, i) => [h, i]));
   if (userRows_().some((u) => String(u.username || "").toLowerCase() === username && u.user_id !== b.user_id)) throw Error("Username sudah digunakan.");
   const now = now_(), row = b.user_id ? values.findIndex((r, i) => i > 0 && r[idx.user_id] === b.user_id) : -1;
   if (row < 1) s.appendRow([uid_(), username, name, "ADMIN", b.active !== false, now, now, actor.user_id]);
@@ -325,12 +340,27 @@ function uid_() {
 function sheet_(n) {
   const id =
     PropertiesService.getScriptProperties().getProperty("SPREADSHEET_ID") || SPREADSHEET_ID;
-  return SpreadsheetApp.openById(id).getSheetByName(n);
+  if (!id) throw Error("SPREADSHEET_ID belum dikonfigurasi.");
+  const spreadsheet = SpreadsheetApp.openById(id);
+  const sheet = spreadsheet.getSheetByName(n);
+  if (!sheet) throw Error("Sheet " + n + " tidak ditemukan pada spreadsheet yang dikonfigurasi.");
+  return sheet;
+}
+function headerMap_(values, sheetName) {
+  const rawHeaders = values[0] || [];
+  const headers = rawHeaders.map(normalizeHeader_);
+  const duplicates = headers.filter((h, i) => h && headers.indexOf(h) !== i);
+  if (duplicates.length) throw Error("Konfigurasi sheet " + sheetName + " memiliki header duplikat: " + [...new Set(duplicates)].join(", "));
+  return headers;
 }
 function rows_(n) {
   const values = sheet_(n).getDataRange().getValues();
+  if (!values.length) return [];
+  const headers = headerMap_(values, n);
+  const required = n === "Users" ? APP.SHEETS.Users : [];
+  const missing = required.filter((h) => !headers.includes(normalizeHeader_(h)));
+  if (missing.length) throw Error("Konfigurasi sheet " + n + " kekurangan header wajib: " + missing.join(", "));
   if (values.length < 2) return [];
-  const headers = values[0].map((h) => String(h).trim());
   return values.slice(1).map((r) => Object.fromEntries(headers.map((h, i) => [h, r[i]])));
 }
 function actor_(body) {
