@@ -10,6 +10,34 @@
   box-sizing:border-box}
 body {
   margin:0}
+.login-page {
+  position:relative;
+  min-height:100vh;
+  display:grid;
+  place-items:center;
+  overflow:hidden;
+  background:linear-gradient(135deg,#0f4d39,#145a42 55%,#1b7052)}
+.login-card {
+  position:relative;
+  z-index:1;
+  width:min(420px,calc(100% - 32px))}
+.fireflies {
+  position:absolute;
+  inset:0;
+  pointer-events:none}
+.firefly {
+  position:absolute;
+  border-radius:50%;
+  background:#e4c77e;
+  box-shadow:0 0 12px #e4c77e;
+  animation:float var(--duration) linear var(--delay) infinite alternate}
+@keyframes float {
+  0% { transform:translate(var(--x1),var(--y1)); opacity:.15 }
+  25% { transform:translate(var(--x2),var(--y2)); opacity:.8 }
+  50% { transform:translate(var(--x3),var(--y3)); opacity:.25 }
+  75% { transform:translate(var(--x4),var(--y4)); opacity:.7 }
+  100% { transform:translate(var(--x5),var(--y5)); opacity:.15 }
+}
 button,input,textarea {
   font:inherit}
 button {

@@ -95,8 +95,34 @@
     }
     return d;
   }
+  const random = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+  function createFireflies(root) {
+    if (!root) return;
+    root.replaceChildren();
+    for (let i = 0; i < 18; i += 1) {
+      const dot = document.createElement("span");
+      dot.className = "firefly";
+      const size = random(3, 7);
+      dot.style.width = `${size}px`;
+      dot.style.height = `${size}px`;
+      dot.style.setProperty("--duration", `${random(35, 65)}s`);
+      dot.style.setProperty("--delay", `${random(0, 3)}s`);
+      for (let n = 1; n <= 5; n += 1) {
+        dot.style.setProperty(`--x${n}`, `${random(0, 100)}vw`);
+        dot.style.setProperty(`--y${n}`, `${random(0, 100)}vh`);
+      }
+      root.appendChild(dot);
+    }
+  }
+  function renderLogin() {
+    const root = document.createElement("main");
+    root.className = "login login-page";
+    root.innerHTML = `<div class="fireflies" aria-hidden="true"></div><form id="login-form" class="card login-card"><div class="brand"><span class="brand-mark">T</span>THR <b>Management</b></div><h1>Masuk</h1><p class="muted">Masukkan username untuk masuk.</p><label class="field">Username<input id="login-username" autocomplete="username" required></label><button class="primary" type="submit">Masuk</button></form>`;
+    createFireflies(root.querySelector(".fireflies"));
+    return root.outerHTML;
+  }
   function login() {
-    return `<main class="login"><form id="login-form" class="card"><div class="brand"><span class="brand-mark">T</span>THR <b>Management</b></div><h1>Masuk</h1><p class="muted">Masukkan username untuk masuk.</p><label class="field">Username<input id="login-username" autocomplete="username" required></label><button class="primary">Masuk</button></form></main>`;
+    return renderLogin();
   }
   function usersPage() {
     if (!s.user || s.user.role !== "SUPER_ADMIN") return simple("Akses ditolak", "Halaman ini hanya dapat dibuka oleh SUPER_ADMIN.");
@@ -178,12 +204,20 @@
   async function saveUser(e) {
     e.preventDefault();
     if (s.loading || !s.user || s.user.role !== "SUPER_ADMIN") return;
-    const edit = Boolean(s.edit_user);
+    const editUser = s.edit_user;
+    const edit = Boolean(editUser);
     if (!confirm(edit ? "Simpan perubahan pengguna?" : "Buat pengguna baru?")) return;
+    const payload = {
+      user_id: editUser?.user_id,
+      username: $("#u-username").value.trim(),
+      display_name: $("#u-name").value.trim(),
+      role: edit ? $("#u-role").value : "ADMIN",
+      active: edit ? $("#u-active").value === "true" : true,
+    };
     s.loading = true;
     renderUserForm();
     try {
-      await api("save_user", { user_id: s.edit_user?.user_id, username: $("#u-username").value.trim(), display_name: $("#u-name").value.trim(), role: edit ? $("#u-role").value : "ADMIN", active: edit ? $("#u-active").value === "true" : true });
+      await api("save_user", payload);
       s.edit_user = null;
       await loadUsers();
       toast("Pengguna berhasil disimpan.");
