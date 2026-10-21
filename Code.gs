@@ -72,6 +72,136 @@ function setupProject() {
   });
   return { spreadsheetId: ss.getId(), folderId: folder.getId() };
 }
+function formatSpreadsheet() {
+  const spreadsheetId = PropertiesService.getScriptProperties().getProperty(
+    "SPREADSHEET_ID",
+  );
+  if (!spreadsheetId) {
+    throw Error("SPREADSHEET_ID belum tersedia. Jalankan setupProject() terlebih dahulu.");
+  }
+
+  const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+  const headerColor = "#145A42";
+  const headerTextColor = "#FFFFFF";
+  const idColumns = new Set([
+    "user_id",
+    "recipient_id",
+    "transaction_id",
+    "officer_id",
+    "drive_file_id",
+    "idempotency_key",
+    "log_id",
+    "actor_id",
+    "entity_id",
+  ]);
+  const timestampColumns = new Set([
+    "created_at",
+    "updated_at",
+    "timestamp_server",
+  ]);
+
+  Object.entries(APP.SHEETS).forEach(([sheetName, headers]) => {
+    const sheet = spreadsheet.getSheetByName(sheetName);
+    if (!sheet) {
+      return;
+    }
+
+    const columnCount = headers.length;
+    const rowCount = Math.max(sheet.getLastRow(), 1);
+    const headerRange = sheet.getRange(1, 1, 1, columnCount);
+
+    headerRange
+      .setBackground(headerColor)
+      .setFontColor(headerTextColor)
+      .setFontWeight("bold")
+      .setHorizontalAlignment("center")
+      .setVerticalAlignment("middle");
+    sheet.setFrozenRows(1);
+    sheet.setRowHeight(1, 36);
+
+    const existingFilter = sheet.getFilter();
+    if (existingFilter) {
+      existingFilter.remove();
+    }
+    if (rowCount > 1) {
+      sheet.getRange(1, 1, rowCount, columnCount).createFilter();
+      sheet
+        .getRange(2, 1, rowCount - 1, columnCount)
+        .setVerticalAlignment("middle");
+    }
+
+    const banding = sheet.getBandings();
+    banding.forEach((band) => band.remove());
+    sheet
+      .getRange(1, 1, rowCount, columnCount)
+      .applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY, true, false);
+    headerRange
+      .setBackground(headerColor)
+      .setFontColor(headerTextColor)
+      .setFontWeight("bold");
+
+    headers.forEach((header, index) => {
+      const column = index + 1;
+      const range = rowCount > 1
+        ? sheet.getRange(2, column, rowCount - 1, 1)
+        : sheet.getRange(1, column, 1, 1);
+
+      if (timestampColumns.has(header) && rowCount > 1) {
+        range.setNumberFormat("yyyy-mm-dd hh:mm:ss");
+      }
+      if (header === "notes" || header === "details") {
+        range.setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
+      }
+      sheet.autoResizeColumn(column);
+      if (idColumns.has(header)) {
+        sheet.setColumnWidth(column, 150);
+      } else if (sheet.getColumnWidth(column) > 300) {
+        sheet.setColumnWidth(column, 300);
+      } else if (sheet.getColumnWidth(column) < 100) {
+        sheet.setColumnWidth(column, 100);
+      }
+    });
+  });
+
+  const transactions = spreadsheet.getSheetByName("Transactions");
+  if (transactions && transactions.getLastRow() > 1) {
+    const headers = APP.SHEETS.Transactions;
+    const statusColumn = headers.indexOf("status") + 1;
+    const statusRange = transactions.getRange(
+      2,
+      statusColumn,
+      transactions.getLastRow() - 1,
+      1,
+    );
+    const rules = transactions
+      .getConditionalFormatRules()
+      .filter((rule) => !rule.getRanges().some((range) =>
+        range.getSheet().getSheetId() === transactions.getSheetId() &&
+        range.getColumn() === statusColumn,
+      ));
+    rules.push(
+      SpreadsheetApp.newConditionalFormatRule()
+        .whenTextEqualTo("ACTIVE")
+        .setBackground("#D9EAD3")
+        .setFontColor("#274E13")
+        .setRanges([statusRange])
+        .build(),
+      SpreadsheetApp.newConditionalFormatRule()
+        .whenTextEqualTo("DELETED")
+        .setBackground("#F4CCCC")
+        .setFontColor("#990000")
+        .setRanges([statusRange])
+        .build(),
+    );
+    transactions.setConditionalFormatRules(rules);
+  }
+
+  return {
+    ok: true,
+    spreadsheetId,
+    sheets: Object.keys(APP.SHEETS),
+  };
+}
 function now_() {
   return Utilities.formatDate(new Date(), APP.TZ, "yyyy-MM-dd'T'HH:mm:ssXXX");
 }

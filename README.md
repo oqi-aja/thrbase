@@ -48,3 +48,16 @@ Role diverifikasi backend, bukan dari browser atau `localStorage`. Foto divalida
 - Setelah backend tersedia, uji akun setiap role, transaksi ganda, upload gagal, akses tanpa izin, dan audit log.
 
 Integrasi Google dan deployment tidak diklaim berhasil sebelum diuji pada project Apps Script pemilik.
+
+## Format Google Sheets
+
+Formatting dijalankan manual oleh pemilik spreadsheet dari editor Apps Script. Fungsi ini hanya membuka spreadsheet dengan ID `SPREADSHEET_ID` pada Script Properties; fungsi tidak mengubah sharing atau permission spreadsheet maupun folder Drive.
+
+1. Buka project Apps Script yang berwenang atas spreadsheet.
+2. Pastikan `Code.gs` sudah tersalin.
+3. Jalankan `setupProject()` satu kali jika `SPREADSHEET_ID` belum tersedia, lalu setujui izin Google Sheets dan Google Drive.
+4. Jalankan `formatSpreadsheet()` dari editor Apps Script sebagai pemilik atau editor yang berwenang.
+5. Setujui izin tambahan jika diminta.
+6. Buka spreadsheet dan verifikasi header, filter, warna baris, freeze row, timestamp, wrap text, status, dan lebar kolom.
+
+`formatSpreadsheet()` aman dijalankan berulang kali: filter dan banding lama diganti, conditional formatting status yang dikelola formatter diganti, dan data tidak dihapus. Jika spreadsheet atau folder memiliki akses terbatas, biarkan tetap terbatas; jangan gunakan `Anyone with the link -> Editor`.
