@@ -12,7 +12,7 @@
     user: null,
     users: [],
     user_filter: { query: "", role: "", active: "" },
-    form: { name: "", item: "", officer: "", notes: "" },
+    form: { name: "", officer: "", notes: "" },
   };
   const $ = (q) => document.querySelector(q),
     esc = (v) =>
@@ -134,7 +134,7 @@
   }
   function userForm(u = {}) {
     const edit = Boolean(u.user_id);
-    return `<section><div class="card"><p class="eyebrow">${edit ? "EDIT AKUN" : "AKUN BARU"}</p><h2>${edit ? "Edit pengguna" : "Tambah akun"}</h2><p class="muted">${edit ? "Perbarui data akun pengguna." : "Akun baru dibuat sebagai ADMIN aktif."}</p><form id="user-form"><label class="field">Username<input id="u-username" required pattern="[a-z0-9._-]{3,40}" minlength="3" maxlength="40" value="${esc(u.username || "")}" ${edit ? "readonly" : ""}></label><label class="field">Nama pengguna<input id="u-name" required maxlength="120" value="${esc(u.display_name || "")}"></label>${edit ? `<label class="field">Role<select id="u-role"><option ${u.role === "ADMIN" ? "selected" : ""}>ADMIN</option><option ${u.role === "SUPER_ADMIN" ? "selected" : ""}>SUPER_ADMIN</option></select></label><label class="field">Status<select id="u-active"><option value="true" ${u.active !== false ? "selected" : ""}>Aktif</option><option value="false" ${u.active === false ? "selected" : ""}>Nonaktif</option></select></label>` : ""}<div class="actions"><button type="button" class="secondary" id="cancel-user">Batal</button><button class="primary" ${s.loading ? "disabled" : ""}>${s.loading ? "Menyimpan…" : "Simpan"}</button></div></form></div></section>`;
+    return `<section><div class="card"><p class="eyebrow">${edit ? "EDIT AKUN" : "AKUN BARU"}</p><h2>${edit ? "Edit pengguna" : "Tambah akun"}</h2><p class="muted">${edit ? "Perbarui data akun pengguna." : "Akun baru dibuat sebagai ADMIN aktif."}</p><form id="user-form"><label class="field">Username<input id="u-username" required pattern="[a-z0-9._-]{3,40}" minlength="3" maxlength="40" value="${esc(u.username || "")}" ${edit ? "readonly" : ""}></label><label class="field">Nama pengguna<input id="u-name" required maxlength="120" value="${esc(u.display_name || "")}"></label>${edit ? `<label class="field">Role<select id="u-role"><option ${u.role === "ADMIN" ? "selected" : ""}>ADMIN</option><option ${u.role === "SUPER_ADMIN" ? "selected" : ""}>SUPER_ADMIN</option></select></label><label class="field">Status<select id="u-active"><option value="true" ${u.active !== false ? "selected" : ""}>Aktif</option><option value="false" ${u.active === false ? "selected" : ""}>Nonaktif</option></select></label>` : ""}<div class="actions"><button type="button" class="secondary" id="cancel-user">Batal</button><button type="submit" class="primary" ${s.loading ? "disabled" : ""}>${s.loading ? "Menyimpan…" : "Simpan"}</button></div></form></div></section>`;
   }
   function shell() {
     return `<div class="layout"><aside class="sidebar"><div class="brand"><span class="brand-mark">T</span>THR <b>Management</b></div><div class="side-label">WORKSPACE</div>${[
@@ -156,20 +156,20 @@
   }
   function dashboard() {
     let r = s.records;
-    return `<section><div class="welcome"><div><h2>Ringkasan penyerahan</h2><p class="muted">Pantau dokumentasi THR barang secara terpusat.</p></div></div><div class="stats"><div class="stat"><span>Total catatan</span><strong>${r.length}</strong></div><div class="stat"><span>Penerima unik</span><strong>${new Set(r.map((x) => x.recipient_name_snapshot)).size}</strong></div><div class="stat"><span>Terakhir diperbarui</span><strong>${r[0] ? new Date(r[0].timestamp_server).toLocaleDateString("id-ID") : "—"}</strong></div></div><div class="card"><h3>Aktivitas terbaru</h3><div class="gold-line"></div>${r.length ? `<p>${esc(r[0].recipient_name_snapshot)} menerima ${esc(r[0].item_name)}.</p>` : '<div class="empty">Belum ada penyerahan. Mulai dengan mengambil foto bukti.</div>'}</div></section>`;
+    return `<section><div class="welcome"><div><h2>Ringkasan penyerahan</h2><p class="muted">Pantau dokumentasi THR barang secara terpusat.</p></div></div><div class="stats"><div class="stat"><span>Total catatan</span><strong>${r.length}</strong></div><div class="stat"><span>Penerima unik</span><strong>${new Set(r.map((x) => x.recipient_name_snapshot)).size}</strong></div><div class="stat"><span>Terakhir diperbarui</span><strong>${r[0] ? new Date(r[0].timestamp_server).toLocaleDateString("id-ID") : "—"}</strong></div></div><div class="card"><h3>Aktivitas terbaru</h3><div class="gold-line"></div>${r.length ? `<p>Penyerahan terbaru untuk ${esc(r[0].recipient_name_snapshot)}.</p>` : '<div class="empty">Belum ada penyerahan. Mulai dengan mengambil foto bukti.</div>'}</div></section>`;
   }
   function rows(rs) {
     return rs.length
       ? rs
           .map(
             (x) =>
-              `<div class="row"><b>${esc(x.recipient_name_snapshot)}</b><span>${esc(x.item_name)}</span><span>${esc(x.officer_name_snapshot)}</span><span>${new Date(x.timestamp_server).toLocaleString("id-ID")}</span><span class="badge">${esc(x.status || "ACTIVE")}</span></div>`,
+              `<div class="row"><b>${esc(x.recipient_name_snapshot)}</b><span>${esc(x.officer_name_snapshot)}</span><span>${new Date(x.timestamp_server).toLocaleString("id-ID")}</span><span class="badge">${esc(x.status || "ACTIVE")}</span></div>`,
           )
           .join("")
       : '<div class="empty">Belum ada data penerimaan.</div>';
   }
   function history() {
-    return `<section><div class="toolbar"><div><h2>Daftar penerima</h2><p class="muted">Riwayat penyerahan THR.</p></div><input class="search" id="search" placeholder="Cari nama, barang, petugas"></div><div class="table" id="rows">${rows(s.records)}</div></section>`;
+    return `<section><div class="toolbar"><div><h2>Daftar penerima</h2><p class="muted">Riwayat penyerahan THR.</p></div><input class="search" id="search" placeholder="Cari nama atau petugas"></div><div class="table" id="rows">${rows(s.records)}</div></section>`;
   }
   function simple(t, d) {
     return `<section><h2>${t}</h2><p class="muted">${d}</p><div class="card empty">Data tersedia setelah backend Apps Script terhubung dan pengguna terotorisasi.</div></section>`;
@@ -180,14 +180,15 @@
     if (s.step === 1)
       b = `<div class="card camera-box"><label><strong>${s.photo ? "Ambil Ulang Foto" : "Ambil Foto"}</strong><span class="muted">Gunakan kamera HP atau pilih dari galeri</span><input id="photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"></label>${s.photo ? `<img class="preview" src="${s.photo}" alt="Preview foto"><button class="primary" id="next-photo">Lanjutkan</button>` : ""}</div>`;
     if (s.step === 2)
-      b = `<div class="card">${s.photo ? `<img class="thumb" src="${s.photo}" alt="Thumbnail foto">` : ""}<label class="field">Nama penerima<input id="name" maxlength="120" value="${esc(f.name)}" required></label><label class="field">Jenis barang THR<input id="item" maxlength="160" value="${esc(f.item)}" required></label><label class="field">Nama petugas penyerah<input id="officer" maxlength="120" value="${esc(f.officer)}" required></label><label class="field">Catatan opsional<textarea id="notes" maxlength="500">${esc(f.notes)}</textarea></label><div class="actions"><button class="secondary" id="back-photo">Kembali</button><button class="primary" id="next-data">Lanjutkan</button></div></div>`;
+      b = `<div class="card">${s.photo ? `<img class="thumb" src="${s.photo}" alt="Thumbnail foto">` : ""}<label class="field">Nama penerima<input id="name" maxlength="120" value="${esc(f.name)}" required></label><label class="field">Nama petugas penyerah<input id="officer" maxlength="120" value="${esc(f.officer)}" required></label><label class="field">Catatan opsional<textarea id="notes" maxlength="500">${esc(f.notes)}</textarea></label><div class="actions"><button class="secondary" id="back-photo">Kembali</button><button class="primary" id="next-data">Lanjutkan</button></div></div>`;
     if (s.step === 3)
-      b = `<div class="card"><img class="preview" src="${s.photo}" alt="Foto bukti"><p><b>${esc(f.name)}</b> menerima <b>${esc(f.item)}</b>, diserahkan oleh <b>${esc(f.officer)}</b>.</p><div class="actions"><button class="secondary" id="back-data">Kembali</button><button class="primary" id="save" ${s.loading ? "disabled" : ""}>${s.loading ? "Menyimpan…" : "Simpan"}</button></div></div>`;
+      b = `<div class="card"><img class="preview" src="${s.photo}" alt="Foto bukti"><p><b>${esc(f.name)}</b> menerima THR, diserahkan oleh <b>${esc(f.officer)}</b>.</p><div class="actions"><button class="secondary" id="back-data">Kembali</button><button class="primary" id="save" ${s.loading ? "disabled" : ""}>${s.loading ? "Menyimpan…" : "Simpan"}</button></div></div>`;
     return `<section><h2>Catat penyerahan THR</h2><p class="muted">Ikuti langkah foto, data penerima, dan konfirmasi.</p><div class="steps"><span class="step on">1 Foto</span><span class="step ${s.step > 1 ? "on" : ""}">2 Data</span><span class="step ${s.step > 2 ? "on" : ""}">3 Simpan</span></div>${b}</section>`;
   }
   function renderUserForm() {
     const u = s.edit_user || {};
     $("#view").innerHTML = userForm(u);
+    bind();
   }
   async function loadUsers() {
     if (!s.user || s.user.role !== "SUPER_ADMIN") return;
@@ -209,25 +210,38 @@
     if (!confirm(edit ? "Simpan perubahan pengguna?" : "Buat pengguna baru?")) return;
     const payload = {
       user_id: editUser?.user_id,
-      username: $("#u-username").value.trim(),
+      username: $("#u-username").value.trim().toLowerCase(),
       display_name: $("#u-name").value.trim(),
       role: edit ? $("#u-role").value : "ADMIN",
       active: edit ? $("#u-active").value === "true" : true,
     };
+    if (!/^[a-z0-9._-]{3,40}$/.test(payload.username) || !payload.display_name) {
+      toast("Username (3-40 karakter: a-z, 0-9, . _ -) dan nama pengguna wajib diisi.");
+      return;
+    }
     s.loading = true;
-    renderUserForm();
+    const submitBtn = $("#user-form")?.querySelector("button.primary");
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Menyimpan…";
+    }
     try {
       await api("save_user", payload);
       s.edit_user = null;
       await loadUsers();
       toast("Pengguna berhasil disimpan.");
-      render();
-    } catch (x) {
-      if (isSessionError(x)) clearSession("Sesi berakhir. Silakan masuk kembali.");
-      else toast(x.message);
-    } finally {
       s.loading = false;
       render();
+    } catch (x) {
+      s.loading = false;
+      if (isSessionError(x)) clearSession("Sesi berakhir. Silakan masuk kembali.");
+      else {
+        toast(x.message);
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Simpan";
+        }
+      }
     }
   }
   async function render() {
@@ -329,12 +343,11 @@
       $("#next-data").onclick = () => {
         s.form = {
           name: $("#name").value.trim(),
-          item: $("#item").value.trim(),
           officer: $("#officer").value.trim(),
           notes: $("#notes").value.trim(),
         };
-        if (!s.form.name || !s.form.item || !s.form.officer) {
-          toast("Nama, barang, dan petugas wajib diisi.");
+        if (!s.form.name || !s.form.officer) {
+          toast("Nama dan petugas wajib diisi.");
           return;
         }
         s.step = 3;
@@ -350,7 +363,7 @@
       $("#search").oninput = (e) =>
         ($("#rows").innerHTML = rows(
           s.records.filter((x) =>
-            (x.recipient_name_snapshot + x.item_name + x.officer_name_snapshot)
+            (x.recipient_name_snapshot + x.officer_name_snapshot)
               .toLowerCase()
               .includes(e.target.value.toLowerCase()),
           ),
@@ -384,7 +397,6 @@
       let r = await api("create", {
         idempotency_key: crypto.randomUUID(),
         recipient_name: s.form.name,
-        item_name: s.form.item,
         officer_name: s.form.officer,
         notes: s.form.notes,
         photo: { dataUrl: s.photo },
@@ -392,7 +404,6 @@
       s.records.unshift({
         transaction_id: r.data.transaction_id,
         recipient_name_snapshot: s.form.name,
-        item_name: s.form.item,
         officer_name_snapshot: s.form.officer,
         timestamp_server: r.data.timestamp_server || new Date().toISOString(),
         status: "ACTIVE",
@@ -400,7 +411,7 @@
       s.page = "history";
       s.step = 1;
       s.photo = "";
-      s.form = { name: "", item: "", officer: "", notes: "" };
+      s.form = { name: "", officer: "", notes: "" };
       toast(
         r.demo
           ? "Mode demo: data belum tersimpan ke Google Sheets."
