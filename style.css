@@ -319,4 +319,16 @@ footer {
   .toolbar {
     align-items:stretch;
     flex-direction:column}
+  .user-table {
+    overflow-x:hidden}
+  .user-table .user-head {
+    display:none}
+  .user-table .user-row {
+    grid-template-columns:1fr 1fr;
+    min-width:0;
+    gap:8px}
+  .user-table .user-row span:nth-child(3) {
+    grid-column:1/-1}
+  .user-table .user-row button {
+    justify-self:start}
 }

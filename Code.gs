@@ -1,4 +1,5 @@
 const SPREADSHEET_ID = "1WVAZ9Y8BGbXF2bKn7id7qld7NOzkx6odZQi9ZXWx0Xw";
+const EVIDENCE_FOLDER_ID = "1OiLIke9VSSzbhqsd3SB-M6ffGTbSXUJQ";
 const APP = {
   TZ: "Asia/Jakarta",
   SESSION_TTL: 6 * 60 * 60 * 1000,
@@ -32,6 +33,9 @@ const APP = {
       "created_at",
       "updated_at",
       "idempotency_key",
+      "latitude",
+      "longitude",
+      "maps_url",
     ],
     AuditLogs: [
       "log_id",
@@ -53,7 +57,7 @@ function doPost(e) {
     const body = JSON.parse(e.postData.contents || "{}");
     return json_(route_(body));
   } catch (x) {
-    return json_({ ok: false, error: x.message || String(x) });
+    return json_({ ok: false, code: x.code || "API_ERROR", error: x.message || String(x) });
   }
 }
 function json_(x) {
@@ -80,22 +84,27 @@ function role_(v) {
 function userRows_() {
   return rows_("Users").map((u) => ({ ...u, username: username_(u.username), active: bool_(u.active), role: role_(u.role) }));
 }
+function apiError_(code, message) {
+  const error = Error(message);
+  error.code = code;
+  return error;
+}
 function session_(token) {
-  if (!token) throw Error("Sesi login diperlukan.");
+  if (!token) throw apiError_("SESSION_REQUIRED", "Sesi login diperlukan.");
   const raw = PropertiesService.getScriptProperties().getProperty("SESSION_" + token);
-  if (!raw) throw Error("Sesi tidak valid atau sudah kedaluwarsa.");
+  if (!raw) throw apiError_("SESSION_INVALID", "Sesi tidak valid atau sudah kedaluwarsa.");
   const data = JSON.parse(raw);
   if (Date.now() > data.expires) {
     PropertiesService.getScriptProperties().deleteProperty("SESSION_" + token);
-    throw Error("Sesi sudah kedaluwarsa.");
+    throw apiError_("SESSION_EXPIRED", "Sesi sudah kedaluwarsa.");
   }
   const u = userRows_().find((x) => x.user_id === data.user_id && x.active === true);
-  if (!u) throw Error("Akun tidak aktif.");
+  if (!u) throw apiError_("SESSION_INVALID", "Akun tidak aktif.");
   return u;
 }
 function requireSession_(body, roles) {
   const u = session_(body.session_token);
-  if (roles && roles.indexOf(u.role) < 0) throw Error("Akses ditolak.");
+  if (roles && roles.indexOf(u.role) < 0) throw apiError_("FORBIDDEN", "Akses ditolak.");
   return u;
 }
 function analyzeUsersMigration_(values) {
@@ -187,29 +196,20 @@ function saveUser_(b) {
 function logout_(b) { if (b.session_token) PropertiesService.getScriptProperties().deleteProperty("SESSION_" + b.session_token); return { ok: true }; }
 function setupProject() {
   const p = PropertiesService.getScriptProperties();
-  const spreadsheetId = p.getProperty("SPREADSHEET_ID") || SPREADSHEET_ID;
-  let ss = spreadsheetId
-    ? SpreadsheetApp.openById(spreadsheetId)
-    : SpreadsheetApp.create("THR Management Database");
+  const ss = openSpreadsheet_();
   p.setProperty("SPREADSHEET_ID", ss.getId());
-  let folder = p.getProperty("FOLDER_ID")
-    ? DriveApp.getFolderById(p.getProperty("FOLDER_ID"))
-    : DriveApp.createFolder("Bukti THR");
+  const folder = getEvidenceFolder_(false);
   p.setProperty("FOLDER_ID", folder.getId());
   Object.keys(APP.SHEETS).forEach((n) => {
     let s = ss.getSheetByName(n) || ss.insertSheet(n);
     if (s.getLastRow() === 0) s.appendRow(APP.SHEETS[n]);
   });
+  ensureTransactionLocationHeaders_();
   migrateUsers_();
   return { spreadsheetId: ss.getId(), folderId: folder.getId() };
 }
 function formatSpreadsheet() {
-  const spreadsheetId = PropertiesService.getScriptProperties().getProperty("SPREADSHEET_ID") || SPREADSHEET_ID;
-  if (!spreadsheetId) {
-    throw Error("SPREADSHEET_ID belum tersedia. Jalankan setupProject() terlebih dahulu.");
-  }
-
-  const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+  const spreadsheet = openSpreadsheet_();
   const headerColor = "#145A42";
   const headerTextColor = "#FFFFFF";
   const idColumns = new Set([
@@ -337,14 +337,46 @@ function now_() {
 function uid_() {
   return Utilities.getUuid();
 }
+function openSpreadsheet_() {
+  const id = String(
+    PropertiesService.getScriptProperties().getProperty("SPREADSHEET_ID") || SPREADSHEET_ID || "",
+  ).trim();
+  if (!id) throw Error("SPREADSHEET_ID belum dikonfigurasi. Jalankan setupProject() atau simpan ID spreadsheet di Script Properties.");
+  try {
+    return SpreadsheetApp.openById(id);
+  } catch (e) {
+    throw Error("SPREADSHEET_ID tidak valid atau spreadsheet tidak dapat diakses oleh akun pelaksana Apps Script.");
+  }
+}
+function getEvidenceFolder_(allowCreate) {
+  const id = EVIDENCE_FOLDER_ID;
+  if (!id) throw Error("EVIDENCE_FOLDER_ID belum dikonfigurasi di Code.gs.");
+  if (/^https?:\/\//i.test(id) || /[\s/]/.test(id)) {
+    throw Error("EVIDENCE_FOLDER_ID harus berisi ID folder Google Drive saja, bukan URL.");
+  }
+  try {
+    const folder = DriveApp.getFolderById(id);
+    if (folder.getId() !== id) throw Error("ID folder Drive tidak sesuai konfigurasi.");
+    return folder;
+  } catch (e) {
+    throw Error("Folder bukti THR tidak valid atau tidak dapat diakses. Pastikan akun pelaksana Apps Script memiliki akses ke folder " + id + ". Detail: " + (e.message || e));
+  }
+}
 function sheet_(n) {
-  const id =
-    PropertiesService.getScriptProperties().getProperty("SPREADSHEET_ID") || SPREADSHEET_ID;
-  if (!id) throw Error("SPREADSHEET_ID belum dikonfigurasi.");
-  const spreadsheet = SpreadsheetApp.openById(id);
+  const spreadsheet = openSpreadsheet_();
   const sheet = spreadsheet.getSheetByName(n);
   if (!sheet) throw Error("Sheet " + n + " tidak ditemukan pada spreadsheet yang dikonfigurasi.");
   return sheet;
+}
+function ensureTransactionLocationHeaders_() {
+  const sheet = sheet_("Transactions");
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(APP.SHEETS.Transactions);
+    return;
+  }
+  const headers = headerMap_(sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues(), "Transactions");
+  const missing = ["latitude", "longitude", "maps_url"].filter((h) => !headers.includes(h));
+  if (missing.length) sheet.getRange(1, sheet.getLastColumn() + 1, 1, missing.length).setValues([missing]);
 }
 function headerMap_(values, sheetName) {
   const rawHeaders = values[0] || [];
@@ -369,6 +401,11 @@ function actor_(body) {
 function require_(body, roles) {
   return requireSession_(body, roles);
 }
+function auditDetails_(d) {
+  const value = { ...(d || {}) };
+  ["session_token", "password", "password_hash", "password_salt", "photo", "dataUrl"].forEach((key) => delete value[key]);
+  return value;
+}
 function log_(u, a, t, id, d) {
   sheet_("AuditLogs").appendRow([
     uid_(),
@@ -377,18 +414,35 @@ function log_(u, a, t, id, d) {
     t,
     id,
     now_(),
-    JSON.stringify(d || {}),
+    JSON.stringify(auditDetails_(d)),
   ]);
+}
+function auditLogs_(b) {
+  requireSession_(b, ["ADMIN", "SUPER_ADMIN"]);
+  return {
+    ok: true,
+    data: rows_("AuditLogs")
+      .map((x) => ({
+        log_id: x.log_id,
+        timestamp_server: x.timestamp_server,
+        action: x.action,
+        entity_type: x.entity_type,
+        entity_id: x.entity_id,
+      }))
+      .reverse()
+      .slice(0, 200),
+  };
 }
 function route_(b) {
   const action = b.action;
   if (action === "login") return login_(b);
   if (action === "logout") return logout_(b);
   if (action === "health") return { ok: true, now: now_() };
+  if (action === "audit_logs") return auditLogs_(b);
   if (action === "users") return users_(b);
   if (action === "save_user") return saveUser_(b);
   if (action === "list") {
-    requireSession_(b, ["ADMIN"]);
+    requireSession_(b, ["ADMIN", "SUPER_ADMIN"]);
     return {
       ok: true,
       data: rows_("Transactions")
@@ -404,6 +458,22 @@ function route_(b) {
 function create_(b) {
   const u = require_(b, ["ADMIN"]);
   if (!b.idempotency_key) throw Error("Idempotency key wajib.");
+  const latitudeText = String(b.latitude ?? "").trim(),
+    longitudeText = String(b.longitude ?? "").trim(),
+    latitude = Number(latitudeText),
+    longitude = Number(longitudeText);
+  if (
+    !latitudeText ||
+    !longitudeText ||
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude)
+  )
+    throw Error("Koordinat lokasi tidak valid.");
+  if (latitude < -90 || latitude > 90)
+    throw Error("Latitude harus berada di antara -90 dan 90.");
+  if (longitude < -180 || longitude > 180)
+    throw Error("Longitude harus berada di antara -180 dan 180.");
+  const mapsUrl = "https://www.google.com/maps?q=" + latitude + "," + longitude;
   const old = rows_("Transactions").find(
     (x) => x.idempotency_key === b.idempotency_key,
   );
@@ -413,40 +483,54 @@ function create_(b) {
   const m = b.photo.dataUrl.match(
     /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/,
   );
-  if (!m) throw Error("Format foto tidak valid.");
-  const bytes = Utilities.base64Decode(m[2]);
+  if (!m) throw Error("Format foto tidak valid. Gunakan JPEG, PNG, atau WebP.");
+  let bytes;
+  try {
+    bytes = Utilities.base64Decode(m[2]);
+  } catch (e) {
+    throw Error("Data Base64 foto tidak valid. Detail: " + (e.message || e));
+  }
   if (bytes.length > APP.MAX_BYTES) throw Error("Foto maksimal 5 MB.");
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   let f;
   try {
-    const folder = DriveApp.getFolderById(
-      PropertiesService.getScriptProperties().getProperty("FOLDER_ID"),
-    );
+    const folder = getEvidenceFolder_(false);
     f = folder.createFile(Utilities.newBlob(bytes, m[1], "THR_" + uid_()));
+    const driveFileId = f.getId();
     const id = uid_(),
       t = now_();
-    sheet_("Transactions").appendRow([
-      id,
-      b.recipient_id || "",
-      String(b.recipient_name || "").trim(),
-      String(b.item_name || "").trim(),
-      u.user_id,
-      u.display_name,
-      t,
-      f.getId(),
-      String(b.notes || "").slice(0, 500),
-      "ACTIVE",
-      t,
-      t,
-      b.idempotency_key,
-    ]);
+    const transactionSheet = sheet_("Transactions");
+    ensureTransactionLocationHeaders_();
+    const transactionHeaders = headerMap_(
+      transactionSheet.getRange(1, 1, 1, transactionSheet.getLastColumn()).getValues(),
+      "Transactions",
+    );
+    const transaction = {
+      transaction_id: id,
+      recipient_id: b.recipient_id || "",
+      recipient_name_snapshot: String(b.recipient_name || "").trim(),
+      item_name: String(b.item_name || "").trim(),
+      officer_id: u.user_id,
+      officer_name_snapshot: u.username,
+      timestamp_server: t,
+      drive_file_id: driveFileId,
+      notes: String(b.notes || "").slice(0, 500),
+      status: "ACTIVE",
+      created_at: t,
+      updated_at: t,
+      idempotency_key: b.idempotency_key,
+      latitude,
+      longitude,
+      maps_url: mapsUrl,
+    };
+    transactionSheet.appendRow(transactionHeaders.map((header) => transaction[header] ?? ""));
     log_(u, "CREATE", "TRANSACTION", id, b);
     return {
       ok: true,
       data: {
         transaction_id: id,
-        drive_file_id: f.getId(),
+        drive_file_id: driveFileId,
         timestamp_server: t,
       },
     };
