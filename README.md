@@ -1,4 +1,5 @@
 # THR Management
+# https://oqi-aja.github.io/thrbase/
 
 Aplikasi sederhana untuk mencatat penyerahan THR berupa barang. Frontend memakai HTML, CSS, dan JavaScript murni. Backend memakai Google Apps Script, Google Sheets, dan Google Drive.
 
