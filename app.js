@@ -281,6 +281,10 @@
   }
 
   // ============================== GPS ==============================
+  function hasValidLocation() {
+    const g = s.geo;
+    return g.status === "ok" && Number.isFinite(Number(g.lat)) && Number.isFinite(Number(g.lng)) && Number(g.lat) >= -90 && Number(g.lat) <= 90 && Number(g.lng) >= -180 && Number(g.lng) <= 180;
+  }
   function requestLocation() {
     s.geo = { status: "locating", lat: null, lng: null, accuracy: 0, error: "" };
     updateGeoChip();
@@ -315,14 +319,20 @@
     const g = s.geo;
     if (g.status === "locating")
       return `<span class="geo-chip locating"><span class="spinner"></span> Mengambil lokasi GPS…</span>`;
-    if (g.status === "ok")
+    if (g.status === "ok" && hasValidLocation())
       return `<span class="geo-chip ok">📍 Lokasi terkunci · akurasi ±${g.accuracy} m</span>`;
-    return `<span class="geo-chip fail">${esc(g.error)} <button type="button" class="link-btn" id="geo-retry">Coba lagi</button><span class="muted">— data tetap dapat disimpan tanpa koordinat.</span></span>`;
+    return `<span class="geo-chip fail">${esc(g.error || "Kunci lokasi terlebih dahulu sebelum menyimpan.")} <button type="button" class="link-btn" id="geo-retry">Coba lagi</button></span>`;
   }
   function updateGeoChip() {
     const chip = $("#geo-chip");
     if (!chip) return;
     chip.innerHTML = geoChipHtml();
+    const saveButton = $("#save");
+    if (saveButton && !s.loading) {
+      const ready = hasValidLocation();
+      saveButton.disabled = !ready;
+      saveButton.textContent = ready ? "✓ Simpan Sekarang" : "🔒 Kunci lokasi terlebih dahulu";
+    }
     const retry = $("#geo-retry");
     if (retry) retry.onclick = () => requestLocation();
   }
@@ -420,11 +430,11 @@
     const f = s.form;
     let b = "";
     if (s.step === 1)
-      b = `<div class="card camera-box">${s.photoBusy ? `<div class="skeleton photo-skeleton"></div><p class="muted center">Memproses & mengoptimalkan foto…</p>` : `<label><strong>${s.photo ? "Ambil Ulang Foto" : "Ambil Foto"}</strong><span class="muted">Kamera HP atau galeri · foto otomatis dioptimalkan</span><input id="photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"></label>${s.photo ? `<img class="preview pop-in" src="${s.photo}" alt="Preview foto"><button class="primary" id="next-photo">Lanjutkan →</button>` : '<div class="empty-icon big">📸</div>'}`}</div>`;
+      b = `<div class="card camera-box">${s.photoBusy ? `<div class="skeleton photo-skeleton"></div><p class="muted center">Memproses & mengoptimalkan foto…</p>` : `<label><strong>${s.photo ? "Foto siap" : "Ambil foto bukti"}</strong><span class="muted">Kamera HP atau galeri · foto otomatis dioptimalkan</span><input id="photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"></label><button type="button" class="primary btn-block" id="photo-trigger">${s.photo ? "📸 Ambil Ulang Foto" : "📸 Ambil Foto"}</button>${s.photo ? `<img class="preview pop-in" src="${s.photo}" alt="Preview foto"><button class="primary" id="next-photo">Lanjutkan →</button>` : '<div class="empty-icon big">📸</div>'}`}</div>`;
     if (s.step === 2)
       b = `<div class="card">${s.photo ? `<img class="thumb pop-in" src="${s.photo}" alt="Thumbnail foto">` : ""}<label class="field">Nama penerima<input id="name" maxlength="120" value="${esc(f.name)}" required placeholder="cth. Bapak Ahmad"></label><label class="field">Catatan opsional<textarea id="notes" maxlength="500" placeholder="cth. THR berupa sembako 1 paket">${esc(f.notes)}</textarea></label><div class="info-chip">👤 Petugas: <b>${esc(s.user.display_name)}</b> <span class="muted">(otomatis dari akun Anda)</span></div><div class="actions"><button class="secondary" id="back-photo">← Kembali</button><button class="primary" id="next-data">Lanjutkan →</button></div></div>`;
     if (s.step === 3)
-      b = `<div class="card confirm-card"><img class="preview pop-in" src="${s.photo}" alt="Foto bukti"><div class="summary"><div class="summary-row"><span>Penerima</span><b>${esc(f.name)}</b></div><div class="summary-row"><span>Petugas</span><b>${esc(s.user.display_name)}</b></div></div><div id="geo-chip">${geoChipHtml()}</div><div class="actions"><button class="secondary" id="back-data">← Kembali</button><button class="primary" id="save" ${s.loading ? "disabled" : ""}>${s.loading ? "Menyimpan…" : "✓ Simpan Sekarang"}</button></div></div>`;
+      b = `<div class="card confirm-card"><img class="preview pop-in" src="${s.photo}" alt="Foto bukti"><div class="summary"><div class="summary-row"><span>Penerima</span><b>${esc(f.name)}</b></div><div class="summary-row"><span>Petugas</span><b>${esc(s.user.display_name)}</b></div></div><div id="geo-chip">${geoChipHtml()}</div><div class="actions"><button class="secondary" id="back-data">← Kembali</button><button class="primary" id="save" ${s.loading || !hasValidLocation() ? "disabled" : ""}>${s.loading ? "Menyimpan…" : hasValidLocation() ? "✓ Simpan Sekarang" : "🔒 Kunci lokasi terlebih dahulu"}</button></div></div>`;
     return `<section><h2>Catat penyerahan THR</h2><p class="muted">Ikuti langkah foto, data penerima, dan konfirmasi.</p><div class="steps"><span class="step ${s.step === 1 ? "on" : "done"}"><i>1</i> Foto</span><span class="step ${s.step === 2 ? "on" : s.step > 2 ? "done" : ""}"><i>2</i> Data</span><span class="step ${s.step === 3 ? "on" : ""}"><i>3</i> Simpan</span></div>${b}</section>`;
   }
 
@@ -673,7 +683,10 @@
     }
   }
   async function save() {
-    if (s.loading) return;
+    if (s.loading || !hasValidLocation()) {
+      if (!s.loading) toast("Kunci lokasi terlebih dahulu sebelum menyimpan.", "error");
+      return;
+    }
     s.loading = true;
     const btn = $("#save");
     if (btn) {
@@ -689,7 +702,8 @@
           recipient_name: s.form.name,
           notes: s.form.notes,
           photo: { dataUrl: s.photo },
-          ...(s.geo.status === "ok" ? { latitude: String(s.geo.lat), longitude: String(s.geo.lng) } : {}),
+          latitude: String(s.geo.lat),
+          longitude: String(s.geo.lng),
         },
         { timeout: 90000 },
       );
@@ -701,7 +715,7 @@
         status: "ACTIVE",
         notes: s.form.notes,
         drive_file_id: r.data.drive_file_id || "",
-        maps_url: s.geo.status === "ok" ? `https://www.google.com/maps?q=${s.geo.lat},${s.geo.lng}` : "",
+        maps_url: `https://www.google.com/maps?q=${s.geo.lat},${s.geo.lng}`,
       });
       s.page = "history";
       s.step = 1;
@@ -874,6 +888,7 @@
     $$(".del-recipient").forEach((b) => (b.onclick = () => deleteRecipient(b.dataset.id)));
     $$(".del-trx").forEach((b) => (b.onclick = () => deleteTransaction(b.dataset.id)));
     const p = $("#photo");
+    if ($("#photo-trigger") && p) $("#photo-trigger").onclick = () => p.click();
     if (p)
       p.onchange = async (e) => {
         const f = e.target.files[0];

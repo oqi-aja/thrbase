@@ -533,6 +533,7 @@ function create_(b) {
   const latitudeText = String(b.latitude ?? "").trim(),
     longitudeText = String(b.longitude ?? "").trim();
   let latitude = null, longitude = null, mapsUrl = "";
+  if (!latitudeText || !longitudeText) throw Error("Lokasi wajib dikunci sebelum menyimpan.");
   if (latitudeText || longitudeText) {
     latitude = Number(latitudeText);
     longitude = Number(longitudeText);
