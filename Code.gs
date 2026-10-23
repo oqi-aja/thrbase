@@ -524,6 +524,7 @@ function route_(b) {
   }
   if (action === "create") return create_(b);
   if (action === "delete") return delete_(b);
+  if (action === "delete_recipient") return deleteRecipient_(b);
   throw Error("Action tidak dikenal.");
 }
 function create_(b) {
@@ -612,6 +613,29 @@ function create_(b) {
   } finally {
     lock.releaseLock();
   }
+}
+function deleteRecipient_(b) {
+  const u = require_(b, ["ADMIN", "SUPER_ADMIN"]);
+  if (!b.recipient_id) throw Error("recipient_id wajib diisi.");
+  const s = sheet_("Recipients");
+  const values = s.getDataRange().getValues();
+  if (!values.length) throw Error("Penerima tidak ditemukan.");
+  const headers = headerMap_(values, "Recipients");
+  const idx = Object.fromEntries(headers.map((h, i) => [h, i]));
+  if (idx.recipient_id === undefined || idx.active === undefined)
+    throw Error("Konfigurasi sheet Recipients tidak lengkap.");
+  let found = null;
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][idx.recipient_id]) !== String(b.recipient_id)) continue;
+    found = { row: i + 1, name: values[i][idx.name] || "" };
+    if (!bool_(values[i][idx.active])) return { ok: true, already_deleted: true };
+    s.getRange(i + 1, idx.active + 1).setValue(false);
+    if (idx.updated_at !== undefined) s.getRange(i + 1, idx.updated_at + 1).setValue(now_());
+    break;
+  }
+  if (!found) throw Error("Penerima tidak ditemukan.");
+  log_(u, "DELETE", "RECIPIENT", b.recipient_id, { name: found.name });
+  return { ok: true };
 }
 function delete_(b) {
   const u = require_(b, ["ADMIN", "SUPER_ADMIN"]);

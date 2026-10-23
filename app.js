@@ -22,6 +22,7 @@
     form: { name: "", notes: "" },
     geo: { status: "idle", lat: null, lng: null, accuracy: 0, error: "" },
     online: navigator.onLine,
+    deletingRecipient: "",
   };
 
   // ============================== HELPERS ==============================
@@ -170,6 +171,11 @@
       return { ok: true };
     }
     if (action === "list") return { ok: true, data: s.records };
+    if (action === "delete_recipient") {
+      const recipient = s.records.find((x) => String(x.recipient_id) === String(p.recipient_id));
+      if (recipient) s.records = s.records.filter((x) => String(x.recipient_id) !== String(p.recipient_id));
+      return { ok: true, demo: true };
+    }
     if (action === "create")
       return {
         ok: true,
@@ -400,7 +406,7 @@
             const maps = x.maps_url
               ? `<a class="row-link" href="${esc(x.maps_url)}" target="_blank" rel="noopener" title="Buka lokasi di Google Maps">📍 Maps</a>`
               : "";
-            return `<div class="row trx-row" style="animation-delay:${Math.min(i, 12) * 40}ms"><div class="cell-main"><b>${esc(x.recipient_name_snapshot)}</b>${x.notes ? `<span class="cell-sub">${esc(x.notes)}</span>` : ""}</div><span>${esc(x.officer_name_snapshot || "-")}</span><span>${fmtDateTime(x.timestamp_server)}</span><span class="badge ${String(x.status).toUpperCase() === "ACTIVE" ? "ok" : "del"}">${esc(x.status || "ACTIVE")}</span><div class="row-actions">${proof}${maps}<button class="icon-btn del-trx" data-id="${esc(x.transaction_id)}" title="Hapus catatan">🗑</button></div></div>`;
+            return `<div class="row trx-row" style="animation-delay:${Math.min(i, 12) * 40}ms"><div class="cell-main"><b>${esc(x.recipient_name_snapshot)}</b>${x.notes ? `<span class="cell-sub">${esc(x.notes)}</span>` : ""}</div><span>${esc(x.officer_name_snapshot || "-")}</span><span>${fmtDateTime(x.timestamp_server)}</span><span class="badge ${String(x.status).toUpperCase() === "ACTIVE" ? "ok" : "del"}">${esc(x.status || "ACTIVE")}</span><div class="row-actions">${proof}${maps}${s.user && ["ADMIN", "SUPER_ADMIN"].includes(s.user.role) && x.recipient_id ? `<button class="icon-btn del-recipient" data-id="${esc(x.recipient_id)}" title="Hapus penerima" ${String(s.deletingRecipient) === String(x.recipient_id) ? "disabled" : ""}>${String(s.deletingRecipient) === String(x.recipient_id) ? "…" : "👤🗑"}</button>` : ""}<button class="icon-btn del-trx" data-id="${esc(x.transaction_id)}" title="Hapus catatan">🗑</button></div></div>`;
           })
           .join("")
       : '<div class="empty"><div class="empty-icon">🗂</div>Belum ada data penerimaan.</div>';
@@ -622,6 +628,31 @@
       }
     }
   }
+  async function deleteRecipient(id) {
+    if (s.deletingRecipient) return;
+    const rec = s.records.find((x) => String(x.recipient_id) === String(id));
+    const ok = await confirmDialog({
+      title: "Hapus penerima?",
+      message: `Penerima "${rec?.recipient_name_snapshot || "ini"}" akan dinonaktifkan. Transaksi dan foto bukti tetap tersimpan.`,
+      okLabel: "Ya, hapus penerima",
+      danger: true,
+    });
+    if (!ok) return;
+    s.deletingRecipient = id;
+    render();
+    try {
+      await api("delete_recipient", { recipient_id: id });
+      await load();
+      s.deletingRecipient = "";
+      toast("Penerima berhasil dinonaktifkan.", "success");
+      render();
+    } catch (e) {
+      s.deletingRecipient = "";
+      if (isSessionError(e)) return clearSession("Sesi berakhir. Silakan masuk kembali.");
+      toast(e.message, "error");
+      render();
+    }
+  }
   async function deleteTransaction(id) {
     const rec = s.records.find((x) => String(x.transaction_id) === String(id));
     const ok = await confirmDialog({
@@ -840,6 +871,7 @@
         }, 120);
       };
     }
+    $$(".del-recipient").forEach((b) => (b.onclick = () => deleteRecipient(b.dataset.id)));
     $$(".del-trx").forEach((b) => (b.onclick = () => deleteTransaction(b.dataset.id)));
     const p = $("#photo");
     if (p)
