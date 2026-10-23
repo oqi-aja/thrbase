@@ -510,7 +510,7 @@
       ["settings", "Pengaturan", "⚙"],
     ]
       .map((x) => `<button class="nav ${s.page === x[0] ? "active" : ""}" data-page="${x[0]}">${x[2]} <span>${x[1]}</span></button>`)
-      .join("")}<button class="nav logout" id="logout">↪ <span>Keluar</span></button><div class="side-note">🔒 Bukti penyerahan tersimpan privat di Google Drive.</div></aside><main class="main"><header class="topbar"><button class="icon-btn burger" id="hamburger" aria-label="Buka menu">☰</button><div><div class="eyebrow">DOKUMENTASI PENYERAHAN BARANG</div><h1>THR Management</h1></div><span class="net ${s.online ? "on" : "off"}">${s.online ? "● Online" : "● Offline"}</span><button class="primary topbar-cta" data-page="input">＋ Catat THR</button></header><div id="view"></div><footer>THR Management · THR berupa barang, bukan pembayaran</footer></main></div>`;
+      .join("")}<button class="nav logout" id="logout">↪ <span>Keluar</span></button><div class="side-note">🔒 Bukti penyerahan tersimpan privat di Google Drive.</div></aside><main class="main"><header class="topbar"><button class="icon-btn burger" id="hamburger" aria-label="Buka menu">☰</button><div><div class="eyebrow">DOKUMENTASI PENYERAHAN BARANG</div><h1>THR Management  Pabrik Tahu Wiwitan Barat</h1></div><span class="net ${s.online ? "on" : "off"}">${s.online ? "● Online" : "● Offline"}</span><button class="primary topbar-cta" data-page="input">＋ Catat THR</button></header><div id="view"></div><footer>THR Management · THR berupa barang, bukan pembayaran</footer></main></div>`;
   }
 
   // ============================== LOADER DATA ==============================
