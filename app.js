@@ -389,7 +389,7 @@
   function renderLogin() {
     const root = document.createElement("main");
     root.className = "login login-page";
-    root.innerHTML = `<div class="aurora" aria-hidden="true"></div><div class="fireflies" aria-hidden="true"></div><form id="login-form" class="card login-card"><div class="brand"><span class="brand-mark">T</span>THR <b>Management</b></div><h1>Selamat datang 👋</h1><p class="muted">Masukkan username untuk melanjutkan.</p>${
+    root.innerHTML = `<div class="aurora" aria-hidden="true"></div><div class="fireflies" aria-hidden="true"></div><form id="login-form" class="card login-card"><div class="brand"><span class="brand-mark">T</span>THR <b>Management</b></div><p class="company-name">Pabrik Tahu Wiwitan Barat</p><h1>Selamat datang 👋</h1><p class="muted">Masukkan username untuk melanjutkan.</p>${
       !API_URL ? '<p class="demo-hint">MODE DEMO — backend belum terhubung</p>' : ""
     }<label class="field">Username<input id="login-username" autocomplete="username" required placeholder="cth. admin"></label><button class="primary btn-block" type="submit"><span class="btn-label">Masuk</span></button><p class="login-foot">Sesi aman berlaku 6 jam · bukti tersimpan privat di Google Drive</p></form>`;
     createFireflies(root.querySelector(".fireflies"));
@@ -501,7 +501,7 @@
 
   // ============================== SHELL ==============================
   function shell() {
-    return `<div id="progress" class="${Object.values(s.busy).some(Boolean) || s.loading ? "on" : ""}"></div><div id="backdrop" class="backdrop"></div><div class="layout"><aside class="sidebar" id="sidebar"><div class="brand"><span class="brand-mark">T</span>THR <b>Management</b></div><div class="side-label">WORKSPACE</div>${[
+    return `<div id="progress" class="${Object.values(s.busy).some(Boolean) || s.loading ? "on" : ""}"></div><div id="backdrop" class="backdrop"></div><div class="layout"><aside class="sidebar" id="sidebar"><div class="brand"><span class="brand-mark">T</span>THR <b>Management</b></div><p class="company-name">Pabrik Tahu Wiwitan Barat</p><div class="side-label">WORKSPACE</div>${[
       ["dashboard", "Dashboard", "▦"],
       ["input", "Catat THR", "＋"],
       ["history", "Daftar Penerima", "▤"],
@@ -510,7 +510,7 @@
       ["settings", "Pengaturan", "⚙"],
     ]
       .map((x) => `<button class="nav ${s.page === x[0] ? "active" : ""}" data-page="${x[0]}">${x[2]} <span>${x[1]}</span></button>`)
-      .join("")}<button class="nav logout" id="logout">↪ <span>Keluar</span></button><div class="side-note">🔒 Bukti penyerahan tersimpan privat di Google Drive.</div></aside><main class="main"><header class="topbar"><button class="icon-btn burger" id="hamburger" aria-label="Buka menu">☰</button><div><div class="eyebrow">DOKUMENTASI PENYERAHAN BARANG</div><h1>THR Management  Pabrik Tahu Wiwitan Barat</h1></div><span class="net ${s.online ? "on" : "off"}">${s.online ? "● Online" : "● Offline"}</span><button class="primary topbar-cta" data-page="input">＋ Catat THR</button></header><div id="view"></div><footer>THR Management · THR berupa barang, bukan pembayaran</footer></main></div>`;
+      .join("")}<button class="nav logout" id="logout">↪ <span>Keluar</span></button><div class="side-note">🔒 Bukti penyerahan tersimpan privat di Google Drive.</div></aside><main class="main"><header class="topbar"><button class="icon-btn burger" id="hamburger" aria-label="Buka menu">☰</button><div><div class="eyebrow">DOKUMENTASI PENYERAHAN BARANG</div><h1>THR Management</h1><p class="header-company">Pabrik Tahu Wiwitan Barat</p></div><span class="net ${s.online ? "on" : "off"}">${s.online ? "● Online" : "● Offline"}</span><button class="primary topbar-cta" data-page="input">＋ Catat THR</button></header><div id="view"></div><footer>THR Management · THR berupa barang, bukan pembayaran</footer></main></div>`;
   }
 
   // ============================== LOADER DATA ==============================
