@@ -165,16 +165,44 @@ function bootstrapAppUser(username, displayName) {
   sheet_("Users").appendRow([uid_(), value, displayName || value, "SUPER_ADMIN", true, now, now, "SCRIPT_OWNER"]);
   return { ok: true };
 }
+function cleanupExpiredSessions_() {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const all = props.getProperties();
+    const now = Date.now();
+    Object.keys(all).forEach((key) => {
+      if (key.indexOf("SESSION_") !== 0) return;
+      try {
+        const data = JSON.parse(all[key]);
+        if (!data.expires || now > data.expires) props.deleteProperty(key);
+      } catch (e) {
+        props.deleteProperty(key);
+      }
+    });
+  } catch (e) {
+    // Pembersihan sesi kedaluwarsa bersifat best-effort.
+  }
+}
 function login_(b) {
   const username = username_(b.username);
   if (!username) throw Error("Username wajib diisi.");
+  const cache = CacheService.getScriptCache();
+  const failKey = "LOGINFAIL_" + username;
+  const fails = Number(cache.get(failKey) || 0);
+  if (fails >= APP.LOGIN_LIMIT)
+    throw apiError_("RATE_LIMITED", "Terlalu banyak percobaan login untuk username ini. Coba lagi dalam " + Math.ceil(APP.LOGIN_WINDOW / 60000) + " menit.");
   const matches = userRows_().filter((x) => username_(x.username) === username);
   if (matches.length > 1) throw Error("Konfigurasi Users ambigu: username duplikat setelah normalisasi.");
   const u = matches[0];
-  if (!u) throw Error("Username tidak ditemukan.");
+  if (!u) {
+    cache.put(failKey, String(fails + 1), Math.floor(APP.LOGIN_WINDOW / 1000));
+    throw Error("Username tidak ditemukan.");
+  }
   if (u.active !== true) throw Error("Akun tidak aktif.");
+  cleanupExpiredSessions_();
   const token = Utilities.getUuid() + Utilities.getUuid().replace(/-/g, ""), expires = Date.now() + APP.SESSION_TTL;
   PropertiesService.getScriptProperties().setProperty("SESSION_" + token, JSON.stringify({ user_id: u.user_id, expires }));
+  cache.remove(failKey);
   return { ok: true, session_token: token, expires, user: publicUser_(u) };
 }
 function users_(b) {
@@ -186,12 +214,25 @@ function saveUser_(b) {
   if (!/^[a-z0-9._-]{3,40}$/.test(username) || !name) throw Error("Data pengguna tidak valid.");
   const role = b.user_id ? role_(b.role) : "ADMIN";
   if (!role || (role === "SUPER_ADMIN" && b.user_id !== actor.user_id)) throw Error("Role pengguna tidak diizinkan.");
-  const s = sheet_("Users"), values = s.getDataRange().getValues(), headers = headerMap_(values, "Users"), idx = Object.fromEntries(headers.map((h, i) => [h, i]));
-  if (userRows_().some((u) => String(u.username || "").toLowerCase() === username && u.user_id !== b.user_id)) throw Error("Username sudah digunakan.");
-  const now = now_(), row = b.user_id ? values.findIndex((r, i) => i > 0 && r[idx.user_id] === b.user_id) : -1;
-  if (row < 1) s.appendRow([uid_(), username, name, "ADMIN", b.active !== false, now, now, actor.user_id]);
-  else { const r = row + 1; [ ["username", username], ["display_name", name], ["role", role], ["active", bool_(b.active)], ["updated_at", now] ].forEach(([h, v]) => s.getRange(r, idx[h] + 1).setValue(v)); }
-  return { ok: true };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const s = sheet_("Users"), values = s.getDataRange().getValues(), headers = headerMap_(values, "Users"), idx = Object.fromEntries(headers.map((h, i) => [h, i]));
+    if (userRows_().some((u) => String(u.username || "").toLowerCase() === username && String(u.user_id) !== String(b.user_id || ""))) throw Error("Username sudah digunakan.");
+    const now = now_(), row = b.user_id ? values.findIndex((r, i) => i > 0 && String(r[idx.user_id]) === String(b.user_id)) : -1;
+    if (row < 1) {
+      const record = { user_id: uid_(), username: username, display_name: name, role: role, active: b.active !== false, created_at: now, updated_at: now, created_by: actor.user_id };
+      s.appendRow(headers.map((h) => record[h] !== undefined ? record[h] : ""));
+      log_(actor, "CREATE", "USER", record.user_id, { username: username, display_name: name, role: role });
+    } else {
+      const r = row + 1;
+      [["username", username], ["display_name", name], ["role", role], ["active", bool_(b.active)], ["updated_at", now]].forEach(([h, v]) => { if (idx[h] !== undefined) s.getRange(r, idx[h] + 1).setValue(v); });
+      log_(actor, "UPDATE", "USER", b.user_id, { username: username, display_name: name, role: role });
+    }
+    return { ok: true };
+  } finally {
+    lock.releaseLock();
+  }
 }
 function logout_(b) { if (b.session_token) PropertiesService.getScriptProperties().deleteProperty("SESSION_" + b.session_token); return { ok: true }; }
 function setupProject() {
@@ -407,18 +448,27 @@ function auditDetails_(d) {
   return value;
 }
 function log_(u, a, t, id, d) {
-  sheet_("AuditLogs").appendRow([
-    uid_(),
-    u.user_id,
-    a,
-    t,
-    id,
-    now_(),
-    JSON.stringify(auditDetails_(d)),
-  ]);
+  try {
+    let details = "";
+    try { details = JSON.stringify(auditDetails_(d)); } catch (e) { details = "{}"; }
+    if (details.length > 45000) details = details.slice(0, 45000);
+    sheet_("AuditLogs").appendRow([
+      uid_(),
+      u.user_id,
+      a,
+      t,
+      id,
+      now_(),
+      details,
+    ]);
+  } catch (e) {
+    // Audit log bersifat best-effort; kegagalan menulis log tidak boleh
+    // menggagalkan operasi utama yang sudah berhasil tersimpan.
+  }
 }
 function auditLogs_(b) {
   requireSession_(b, ["ADMIN", "SUPER_ADMIN"]);
+  const names = Object.fromEntries(userRows_().map((u) => [u.user_id, u.username]));
   return {
     ok: true,
     data: rows_("AuditLogs")
@@ -428,9 +478,29 @@ function auditLogs_(b) {
         action: x.action,
         entity_type: x.entity_type,
         entity_id: x.entity_id,
+        actor_id: x.actor_id,
+        actor_username: names[x.actor_id] || "-",
       }))
       .reverse()
-      .slice(0, 200),
+      .slice(0, 300),
+  };
+}
+function status_(b) {
+  const u = requireSession_(b);
+  const props = PropertiesService.getScriptProperties();
+  let sessionExpires = null;
+  try {
+    const raw = props.getProperty("SESSION_" + b.session_token);
+    if (raw) sessionExpires = JSON.parse(raw).expires || null;
+  } catch (e) {}
+  const transactions = rows_("Transactions").filter((x) => String(x.status).toUpperCase() !== "DELETED");
+  return {
+    ok: true,
+    now: now_(),
+    spreadsheet_id: props.getProperty("SPREADSHEET_ID") || SPREADSHEET_ID || "",
+    session_expires: sessionExpires,
+    user: publicUser_(u),
+    counts: { users: userRows_().length, transactions: transactions.length },
   };
 }
 function route_(b) {
@@ -438,6 +508,7 @@ function route_(b) {
   if (action === "login") return login_(b);
   if (action === "logout") return logout_(b);
   if (action === "health") return { ok: true, now: now_() };
+  if (action === "status") return status_(b);
   if (action === "audit_logs") return auditLogs_(b);
   if (action === "users") return users_(b);
   if (action === "save_user") return saveUser_(b);
@@ -456,24 +527,22 @@ function route_(b) {
   throw Error("Action tidak dikenal.");
 }
 function create_(b) {
-  const u = require_(b, ["ADMIN"]);
+  const u = require_(b, ["ADMIN", "SUPER_ADMIN"]);
   if (!b.idempotency_key) throw Error("Idempotency key wajib.");
   const latitudeText = String(b.latitude ?? "").trim(),
-    longitudeText = String(b.longitude ?? "").trim(),
-    latitude = Number(latitudeText),
+    longitudeText = String(b.longitude ?? "").trim();
+  let latitude = null, longitude = null, mapsUrl = "";
+  if (latitudeText || longitudeText) {
+    latitude = Number(latitudeText);
     longitude = Number(longitudeText);
-  if (
-    !latitudeText ||
-    !longitudeText ||
-    !Number.isFinite(latitude) ||
-    !Number.isFinite(longitude)
-  )
-    throw Error("Koordinat lokasi tidak valid.");
-  if (latitude < -90 || latitude > 90)
-    throw Error("Latitude harus berada di antara -90 dan 90.");
-  if (longitude < -180 || longitude > 180)
-    throw Error("Longitude harus berada di antara -180 dan 180.");
-  const mapsUrl = "https://www.google.com/maps?q=" + latitude + "," + longitude;
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude))
+      throw Error("Koordinat lokasi tidak valid.");
+    if (latitude < -90 || latitude > 90)
+      throw Error("Latitude harus berada di antara -90 dan 90.");
+    if (longitude < -180 || longitude > 180)
+      throw Error("Longitude harus berada di antara -180 dan 180.");
+    mapsUrl = "https://www.google.com/maps?q=" + latitude + "," + longitude;
+  }
   const old = rows_("Transactions").find(
     (x) => x.idempotency_key === b.idempotency_key,
   );
@@ -545,20 +614,25 @@ function create_(b) {
   }
 }
 function delete_(b) {
-  const u = require_(b, ["ADMIN"]),
-    s = sheet_("Transactions"),
-    r = rows_("Transactions").find(
-      (x) => x.transaction_id === b.transaction_id,
-    );
+  const u = require_(b, ["ADMIN", "SUPER_ADMIN"]);
+  if (!b.transaction_id) throw Error("transaction_id wajib diisi.");
+  const s = sheet_("Transactions");
+  const r = rows_("Transactions").find(
+    (x) => String(x.transaction_id) === String(b.transaction_id),
+  );
   if (!r) throw Error("Transaksi tidak ditemukan.");
-  const vals = s.getDataRange().getValues(), headers = vals[0].map((h) => String(h).trim());
-  const idColumn = headers.indexOf("transaction_id"), statusColumn = headers.indexOf("status"), updatedColumn = headers.indexOf("updated_at");
+  if (String(r.status).toUpperCase() === "DELETED") return { ok: true, already_deleted: true };
+  const vals = s.getDataRange().getValues();
+  const headers = headerMap_(vals, "Transactions");
+  const idx = Object.fromEntries(headers.map((h, i) => [h, i]));
+  if (idx.transaction_id === undefined || idx.status === undefined)
+    throw Error("Konfigurasi sheet Transactions tidak lengkap.");
   for (let i = 1; i < vals.length; i++)
-    if (vals[i][idColumn] === b.transaction_id) {
-      s.getRange(i + 1, statusColumn + 1).setValue("DELETED");
-      s.getRange(i + 1, updatedColumn + 1).setValue(now_());
+    if (String(vals[i][idx.transaction_id]) === String(b.transaction_id)) {
+      s.getRange(i + 1, idx.status + 1).setValue("DELETED");
+      if (idx.updated_at !== undefined) s.getRange(i + 1, idx.updated_at + 1).setValue(now_());
       break;
     }
-  log_(u, "DELETE", "TRANSACTION", b.transaction_id, {});
+  log_(u, "DELETE", "TRANSACTION", b.transaction_id, { recipient_name_snapshot: r.recipient_name_snapshot });
   return { ok: true };
 }

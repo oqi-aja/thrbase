@@ -40,10 +40,11 @@ Login memakai username-only dan tidak memakai akun Google atau password. Model i
 
 1. Sheet `Users` harus memiliki: `user_id`, `username`, `display_name`, `role`, `active`, `created_at`, `updated_at`, `created_by`.
 2. Bootstrap hanya dilakukan melalui fungsi editor Apps Script dan tidak tersedia sebagai action API publik.
-3. `SUPER_ADMIN` hanya mengelola username. Pengguna baru dari dashboard selalu berrole `ADMIN`.
-4. `ADMIN` hanya menjalankan operasional THR dan transaksi.
-5. Token sesi disimpan di backend selama enam jam dan diverifikasi pada setiap endpoint privat.
-6. Nonaktifkan akun dari dashboard untuk menolak login dan sesi lama.
+3. `SUPER_ADMIN` dapat membuka dashboard, transaksi, Audit Log, dan manajemen pengguna. Pengaturan saat ini hanya halaman informasi; belum ada endpoint untuk mengubah konfigurasi.
+4. `ADMIN` menjalankan operasional THR dan transaksi, tetapi tidak dapat mengelola pengguna.
+5. Pengguna baru dari dashboard selalu berrole `ADMIN`; endpoint pengelolaan pengguna tetap dibatasi untuk `SUPER_ADMIN`.
+6. Token sesi disimpan di backend selama enam jam dan diverifikasi pada setiap endpoint privat.
+7. Nonaktifkan akun dari dashboard untuk menolak login dan sesi lama.
 
 Akun lama dengan header tergabung tidak dimigrasikan otomatis. Tinjau hasil `previewUsersMigration()` dan perbaiki sheet secara manual agar data lama tidak tertukar.
 
@@ -55,8 +56,9 @@ Role diverifikasi backend, bukan dari browser atau `localStorage`. Foto divalida
 
 - `node --check app.js`
 - `git diff --check`
-- Jalankan static server, uji navigasi, upload JPG/PNG/WebP, penolakan file >5 MB, preview, kembali antar langkah, validasi form, retry, dan mode demo.
-- Setelah backend tersedia, uji akun setiap role, transaksi ganda, upload gagal, akses tanpa izin, dan audit log.
+- Jalankan melalui HTTPS untuk menguji GPS. Lokasi wajib valid sebelum transaksi dikirim; penolakan izin, timeout, dan lokasi tidak tersedia menampilkan pesan serta opsi mencoba kembali.
+- Uji navigasi, upload JPG/PNG/WebP, penolakan file >5 MB, preview, validasi form, dan mode demo.
+- Setelah backend tersedia, uji role `ADMIN` dan `SUPER_ADMIN`, sinkronisasi dashboard, Audit Log, manajemen pengguna, transaksi ganda/idempotensi, upload gagal, dan akses tanpa izin.
 
 Integrasi Google, Sheets, Drive, dan deployment tidak diklaim berhasil sebelum diuji pada project Apps Script pemilik. Test lokal tidak menulis spreadsheet produksi.
 
