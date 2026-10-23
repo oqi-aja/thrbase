@@ -49,8 +49,11 @@ const APP = {
     Settings: ["key", "value"],
   },
 };
+// Penanda versi deployment. Naikkan saat rilis agar versi Web App aktif bisa
+// dipastikan lewat GET /exec tanpa menebak dari perilaku aplikasi.
+const BUILD = "role-policy-2026-10-23";
 function doGet() {
-  return json_({ ok: true, service: "THR Management API" });
+  return json_({ ok: true, service: "THR Management API", build: BUILD });
 }
 function doPost(e) {
   try {
@@ -209,11 +212,25 @@ function users_(b) {
   requireSession_(b, ["SUPER_ADMIN"]);
   return { ok: true, data: userRows_().map(publicUser_) };
 }
+function roleChangeAllowed_(actorRole, targetRole) {
+  return ["ADMIN", "SUPER_ADMIN"].includes(targetRole) && (targetRole !== "SUPER_ADMIN" || actorRole === "SUPER_ADMIN");
+}
+// Diagnostik tahap penolakan role. Hanya nama tahap, nama role, dan BUILD —
+// tanpa token sesi, user_id, username, atau isi payload. Detail ini tidak
+// pernah dikirim ke klien; hanya muncul di Executions/Stackdriver.
+function roleDiag_(stage, actorRole, targetRole) {
+  try {
+    console.warn(JSON.stringify({ at: "save_user", stage: stage, build: BUILD, actorRole: actorRole || "UNKNOWN", targetRole: targetRole || "UNKNOWN" }));
+  } catch (e) {}
+}
 function saveUser_(b) {
   const actor = requireSession_(b, ["SUPER_ADMIN"]), username = username_(b.username), name = String(b.display_name || "").trim();
   if (!/^[a-z0-9._-]{3,40}$/.test(username) || !name) throw Error("Data pengguna tidak valid.");
   const role = b.user_id ? role_(b.role) : "ADMIN";
-  if (!role || (role === "SUPER_ADMIN" && b.user_id !== actor.user_id)) throw Error("Role pengguna tidak diizinkan.");
+  if (!roleChangeAllowed_(actor.role, role)) {
+    roleDiag_(role ? "actor_not_super_admin" : "target_role_invalid", actor.role, role);
+    throw Error("Role pengguna tidak diizinkan.");
+  }
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
@@ -507,7 +524,7 @@ function route_(b) {
   const action = b.action;
   if (action === "login") return login_(b);
   if (action === "logout") return logout_(b);
-  if (action === "health") return { ok: true, now: now_() };
+  if (action === "health") return { ok: true, now: now_(), build: BUILD };
   if (action === "status") return status_(b);
   if (action === "audit_logs") return auditLogs_(b);
   if (action === "users") return users_(b);
