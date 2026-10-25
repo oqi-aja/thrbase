@@ -251,6 +251,40 @@ function saveUser_(b) {
     lock.releaseLock();
   }
 }
+function deleteUser_(b) {
+  const actor = requireSession_(b, ["SUPER_ADMIN"]);
+  if (!b.user_id) throw Error("user_id wajib diisi.");
+  if (String(b.user_id) === String(actor.user_id))
+    throw Error("Anda tidak dapat menghapus akun sendiri.");
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const users = userRows_();
+    const target = users.find((x) => String(x.user_id) === String(b.user_id));
+    if (!target) throw Error("Pengguna tidak ditemukan.");
+    const activeSuperAdmins = users.filter((x) => x.role === "SUPER_ADMIN" && x.active);
+    if (target.role === "SUPER_ADMIN" && target.active && activeSuperAdmins.length <= 1)
+      throw Error("Tidak dapat menghapus SUPER_ADMIN aktif terakhir. Buat SUPER_ADMIN lain terlebih dahulu.");
+    const s = sheet_("Users");
+    const values = s.getDataRange().getValues();
+    const headers = headerMap_(values, "Users");
+    const idx = Object.fromEntries(headers.map((h, i) => [h, i]));
+    if (idx.user_id === undefined) throw Error("Konfigurasi sheet Users tidak lengkap.");
+    for (let i = 1; i < values.length; i++) {
+      if (String(values[i][idx.user_id]) !== String(b.user_id)) continue;
+      s.deleteRow(i + 1);
+      log_(actor, "DELETE", "USER", b.user_id, {
+        username: target.username,
+        display_name: target.display_name,
+        role: target.role,
+      });
+      return { ok: true };
+    }
+    throw Error("Pengguna tidak ditemukan.");
+  } finally {
+    lock.releaseLock();
+  }
+}
 function logout_(b) { if (b.session_token) PropertiesService.getScriptProperties().deleteProperty("SESSION_" + b.session_token); return { ok: true }; }
 function setupProject() {
   const p = PropertiesService.getScriptProperties();
@@ -542,6 +576,8 @@ function route_(b) {
   if (action === "create") return create_(b);
   if (action === "delete") return delete_(b);
   if (action === "delete_recipient") return deleteRecipient_(b);
+  if (action === "update_transaction") return updateTransaction_(b);
+  if (action === "delete_user") return deleteUser_(b);
   throw Error("Action tidak dikenal.");
 }
 function create_(b) {
@@ -628,6 +664,49 @@ function create_(b) {
         f.setTrashed(true);
       } catch (ignore) {}
     throw e;
+  } finally {
+    lock.releaseLock();
+  }
+}
+function updateTransaction_(b) {
+  const u = require_(b, ["ADMIN", "SUPER_ADMIN"]);
+  if (!b.transaction_id) throw Error("transaction_id wajib diisi.");
+  const name = String(b.recipient_name || "").trim();
+  if (!name) throw Error("Nama penerima wajib diisi.");
+  if (name.length > 120) throw Error("Nama penerima maksimal 120 karakter.");
+  const notes = String(b.notes || "").trim().slice(0, 500);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const s = sheet_("Transactions");
+    const vals = s.getDataRange().getValues();
+    const headers = headerMap_(vals, "Transactions");
+    const idx = Object.fromEntries(headers.map((h, i) => [h, i]));
+    if (idx.transaction_id === undefined || idx.recipient_name_snapshot === undefined)
+      throw Error("Konfigurasi sheet Transactions tidak lengkap.");
+    for (let i = 1; i < vals.length; i++) {
+      if (String(vals[i][idx.transaction_id]) !== String(b.transaction_id)) continue;
+      const statusVal = idx.status !== undefined ? String(vals[i][idx.status] || "") : "";
+      if (statusVal.toUpperCase() === "DELETED")
+        throw Error("Catatan sudah dihapus dan tidak dapat diubah.");
+      const previous = vals[i][idx.recipient_name_snapshot];
+      s.getRange(i + 1, idx.recipient_name_snapshot + 1).setValue(name);
+      if (idx.notes !== undefined) s.getRange(i + 1, idx.notes + 1).setValue(notes);
+      if (idx.updated_at !== undefined) s.getRange(i + 1, idx.updated_at + 1).setValue(now_());
+      log_(u, "UPDATE", "TRANSACTION", b.transaction_id, {
+        previous_name: previous,
+        new_name: name,
+      });
+      return {
+        ok: true,
+        data: {
+          transaction_id: b.transaction_id,
+          recipient_name_snapshot: name,
+          notes: notes,
+        },
+      };
+    }
+    throw Error("Transaksi tidak ditemukan.");
   } finally {
     lock.releaseLock();
   }

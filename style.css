@@ -827,7 +827,7 @@ select option {
   transform: translateX(4px);
 }
 .user-table .user-row {
-  grid-template-columns: 0.4fr 1.6fr 1.1fr 1fr 0.7fr;
+  grid-template-columns: 0.4fr 1.6fr 1.1fr 1fr 1.35fr;
 }
 .audit-row {
   grid-template-columns: 0.9fr 1.5fr 0.9fr 0.9fr;
@@ -867,6 +867,17 @@ select option {
   gap: 6px;
   justify-content: flex-end;
   flex-wrap: wrap;
+  align-items: center;
+}
+.modal .field {
+  display: block;
+  text-align: left;
+  margin-top: 14px;
+}
+.modal .field input,
+.modal .field textarea {
+  width: 100%;
+  margin-top: 6px;
 }
 .mini-row {
   display: flex;
@@ -1273,6 +1284,7 @@ select option {
   }
   .user-table .user-row .cell-num { display: none; }
   .user-table .user-row .cell-main { grid-column: 1 / -1; }
+  .user-table .user-row .row-actions { grid-column: 1 / -1; justify-content: flex-start; }
   .user-table .user-row button { justify-self: start; }
   .audit-row { grid-template-columns: 1fr 1fr; min-width: 0; }
   .audit-row .cell-main { grid-column: 1 / -1; }

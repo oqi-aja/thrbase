@@ -23,6 +23,8 @@
     geo: { status: "idle", lat: null, lng: null, accuracy: 0, error: "" },
     online: navigator.onLine,
     deletingRecipient: "",
+    deletingUser: "",
+    editingTrx: "",
   };
 
   // ============================== HELPERS ==============================
@@ -140,6 +142,40 @@
     });
   }
 
+  function formDialog({ title = "Edit", message = "", fields = [], okLabel = "Simpan" } = {}) {
+    return new Promise((resolve) => {
+      const root = document.createElement("div");
+      root.className = "modal-backdrop";
+      root.innerHTML = `<div class="modal" role="dialog" aria-modal="true"><h3>${esc(title)}</h3>${message ? `<p class="muted">${esc(message)}</p>` : ""}<form id="dlg-form">${fields
+        .map(
+          (f) =>
+            `<label class="field">${esc(f.label)}${
+              f.textarea
+                ? `<textarea id="${esc(f.id)}" maxlength="${f.maxlength || ""}" rows="3" placeholder="${esc(f.placeholder || "")}">${esc(f.value || "")}</textarea>`
+                : `<input id="${esc(f.id)}" maxlength="${f.maxlength || ""}" value="${esc(f.value || "")}" placeholder="${esc(f.placeholder || "")}" ${f.required ? "required" : ""}>`
+            }</label>`,
+        )
+        .join("")}<div class="actions"><button type="button" class="secondary" data-act="cancel">Batal</button><button type="submit" class="primary">${esc(okLabel)}</button></div></form></div>`;
+      const done = (v) => {
+        root.classList.add("closing");
+        setTimeout(() => root.remove(), 200);
+        resolve(v);
+      };
+      root.addEventListener("click", (e) => {
+        if (e.target === root) return done(null);
+        if (e.target.closest("[data-act='cancel']")) done(null);
+      });
+      root.querySelector("#dlg-form").onsubmit = (e) => {
+        e.preventDefault();
+        const out = {};
+        fields.forEach((f) => (out[f.id] = root.querySelector("#" + f.id)?.value.trim() || ""));
+        done(out);
+      };
+      document.body.appendChild(root);
+      setTimeout(() => root.querySelector("input,textarea")?.focus(), 80);
+    });
+  }
+
   // ============================== API ==============================
   const demoUsers = [
     { user_id: "demo-user", username: "demo", display_name: "Pengguna Demo", role: "SUPER_ADMIN", active: true },
@@ -171,6 +207,22 @@
       return { ok: true };
     }
     if (action === "list") return { ok: true, data: s.records };
+    if (action === "update_transaction") {
+      const rec = s.records.find((x) => String(x.transaction_id) === String(p.transaction_id));
+      if (!rec) throw Error("Transaksi tidak ditemukan.");
+      const name = String(p.recipient_name || "").trim();
+      if (!name) throw Error("Nama penerima wajib diisi.");
+      rec.recipient_name_snapshot = name;
+      rec.notes = String(p.notes || "").trim().slice(0, 500);
+      return { ok: true, data: { transaction_id: rec.transaction_id, recipient_name_snapshot: name, notes: rec.notes } };
+    }
+    if (action === "delete_user") {
+      if (String(p.user_id) === String(demoUser.user_id)) throw Error("Anda tidak dapat menghapus akun sendiri.");
+      const idx = demoUsers.findIndex((x) => String(x.user_id) === String(p.user_id));
+      if (idx < 0) throw Error("Pengguna tidak ditemukan.");
+      demoUsers.splice(idx, 1);
+      return { ok: true };
+    }
     if (action === "delete_recipient") {
       const recipient = s.records.find((x) => String(x.recipient_id) === String(p.recipient_id));
       if (recipient) s.records = s.records.filter((x) => String(x.recipient_id) !== String(p.recipient_id));
@@ -202,38 +254,91 @@
     return { ok: true };
   }
 
-  async function api(action, p = {}, { timeout = 45000 } = {}) {
-    if (!API_URL) return demoApi(action, p);
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeout);
-    let r, d;
-    try {
-      r = await fetch(API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ action, session_token: s.session_token, ...p }),
-        signal: ctrl.signal,
-      });
-    } catch (e) {
-      clearTimeout(timer);
-      throw Error(
-        e.name === "AbortError"
-          ? "Koneksi timeout. Periksa internet Anda lalu coba lagi."
-          : "Koneksi gagal. Periksa internet Anda lalu coba lagi.",
+  function sleep_(ms) {
+    return new Promise((res) => setTimeout(res, ms));
+  }
+
+  function invalidResponseError_(status, txt) {
+    const plain = String(txt || "")
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const isLogin = /accounts\.google\.com|sign in|servicelogin/i.test(plain);
+    if (isLogin || status === 401 || status === 403) {
+      return Error(
+        "Akses web app terbatas. Di Apps Script: Deploy > Manage deployments > ikon pensil > 'Who has access' pilih Anyone, lalu Deploy.",
       );
     }
-    clearTimeout(timer);
-    try {
-      d = await r.json();
-    } catch (e) {
-      throw Error(`Respon server tidak valid (HTTP ${r.status}). Pastikan deployment Apps Script aktif dan akses web app diizinkan.`);
+    if (status === 404) {
+      return Error(
+        "Server Apps Script merespons 404 (gagal setelah 3 percobaan). Kadang ini sesaat setelah redeploy — tunggu 1-2 menit lalu refresh. Jika terus terjadi, cocokkan API_URL di app.js dengan URL /exec pada Deploy > Manage deployments.",
+      );
     }
-    if (!d.ok) {
-      const error = Error(d.error || "Permintaan gagal.");
-      error.code = d.code || "API_ERROR";
-      throw error;
+    if (status >= 500) {
+      return Error(
+        `Server Apps Script error internal (HTTP ${status}). Cek menu Executions di editor Apps Script untuk detail.`,
+      );
     }
-    return d;
+    return Error(
+      `Respon server tidak valid (HTTP ${status}).${plain ? ` Balasan server: "${plain.slice(0, 80)}"` : ""}`,
+    );
+  }
+
+  async function api(action, p = {}, { timeout = 45000 } = {}) {
+    if (!API_URL) return demoApi(action, p);
+    // Body dibangun sekali agar idempotency_key tetap sama saat di-retry.
+    const body = JSON.stringify({ action, session_token: s.session_token, ...p });
+    const MAX = 3;
+    let lastErr = null;
+    for (let attempt = 1; attempt <= MAX; attempt++) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), timeout);
+      let r, txt, d;
+      try {
+        r = await fetch(API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body,
+          signal: ctrl.signal,
+        });
+        txt = await r.text();
+      } catch (e) {
+        clearTimeout(timer);
+        lastErr = Error(
+          e.name === "AbortError"
+            ? "Koneksi timeout. Periksa internet Anda lalu coba lagi."
+            : "Koneksi gagal. Periksa internet Anda lalu coba lagi.",
+        );
+        if (attempt < MAX) {
+          await sleep_(600 * attempt);
+          continue;
+        }
+        throw lastErr;
+      }
+      clearTimeout(timer);
+      try {
+        d = JSON.parse(txt);
+      } catch (e) {
+        d = null;
+      }
+      // Respon bukan JSON (404/5xx/halaman HTML Google) -> coba ulang.
+      if (!d || typeof d !== "object") {
+        lastErr = invalidResponseError_(r.status, txt);
+        if (attempt < MAX) {
+          await sleep_(600 * attempt);
+          continue;
+        }
+        throw lastErr;
+      }
+      if (!d.ok) {
+        const error = Error(d.error || "Permintaan gagal.");
+        error.code = d.code || "API_ERROR";
+        throw error;
+      }
+      return d;
+    }
+    throw lastErr || Error("Koneksi gagal. Coba lagi.");
   }
 
   // ============================== SESSION ==============================
@@ -416,7 +521,7 @@
             const maps = x.maps_url
               ? `<a class="row-link" href="${esc(x.maps_url)}" target="_blank" rel="noopener" title="Buka lokasi di Google Maps">📍 Maps</a>`
               : "";
-            return `<div class="row trx-row" style="animation-delay:${Math.min(i, 12) * 40}ms"><div class="cell-main"><b>${esc(x.recipient_name_snapshot)}</b>${x.notes ? `<span class="cell-sub">${esc(x.notes)}</span>` : ""}</div><span>${esc(x.officer_name_snapshot || "-")}</span><span>${fmtDateTime(x.timestamp_server)}</span><span class="badge ${String(x.status).toUpperCase() === "ACTIVE" ? "ok" : "del"}">${esc(x.status || "ACTIVE")}</span><div class="row-actions">${proof}${maps}${s.user && ["ADMIN", "SUPER_ADMIN"].includes(s.user.role) && x.recipient_id ? `<button class="icon-btn del-recipient" data-id="${esc(x.recipient_id)}" title="Hapus penerima" ${String(s.deletingRecipient) === String(x.recipient_id) ? "disabled" : ""}>${String(s.deletingRecipient) === String(x.recipient_id) ? "…" : "👤🗑"}</button>` : ""}<button class="icon-btn del-trx" data-id="${esc(x.transaction_id)}" title="Hapus catatan">🗑</button></div></div>`;
+            return `<div class="row trx-row" style="animation-delay:${Math.min(i, 12) * 40}ms"><div class="cell-main"><b>${esc(x.recipient_name_snapshot)}</b>${x.notes ? `<span class="cell-sub">${esc(x.notes)}</span>` : ""}</div><span>${esc(x.officer_name_snapshot || "-")}</span><span>${fmtDateTime(x.timestamp_server)}</span><span class="badge ${String(x.status).toUpperCase() === "ACTIVE" ? "ok" : "del"}">${esc(x.status || "ACTIVE")}</span><div class="row-actions">${proof}${maps}${s.user && ["ADMIN", "SUPER_ADMIN"].includes(s.user.role) ? `<button class="icon-btn edit-trx" data-id="${esc(x.transaction_id)}" title="Edit nama penerima & catatan" ${String(s.editingTrx) === String(x.transaction_id) ? "disabled" : ""}>✎</button>` : ""}${s.user && ["ADMIN", "SUPER_ADMIN"].includes(s.user.role) && x.recipient_id ? `<button class="icon-btn del-recipient" data-id="${esc(x.recipient_id)}" title="Hapus penerima" ${String(s.deletingRecipient) === String(x.recipient_id) ? "disabled" : ""}>${String(s.deletingRecipient) === String(x.recipient_id) ? "…" : "👤🗑"}</button>` : ""}<button class="icon-btn del-trx" data-id="${esc(x.transaction_id)}" title="Hapus catatan">🗑</button></div></div>`;
           })
           .join("")
       : '<div class="empty"><div class="empty-icon">🗂</div>Belum ada data penerimaan.</div>';
@@ -448,10 +553,15 @@
       .filter((u) => (!f.query || `${u.username} ${u.display_name}`.toLowerCase().includes(f.query)) && (!f.role || u.role === f.role) && (f.active === "" || String(u.active) === f.active))
       .sort((a, b) => String(a.username).localeCompare(String(b.username)));
     if (!list.length) return '<div class="empty"><div class="empty-icon">👥</div>Tidak ada pengguna yang cocok.</div>';
+    const activeSuperCount = s.users.filter((u) => u.role === "SUPER_ADMIN" && u.active).length;
     return list
       .map(
-        (u, i) =>
-          `<div class="row user-row" style="animation-delay:${Math.min(i, 12) * 40}ms"><span class="cell-num">${i + 1}</span><div class="cell-main"><b>${esc(u.username)}</b><span class="cell-sub">${esc(u.display_name)}</span></div><span><span class="badge ${u.role === "SUPER_ADMIN" ? "gold" : "info"}">${esc(u.role)}</span></span><span><span class="badge ${u.active ? "ok" : "off"}">${u.active ? "Aktif" : "Nonaktif"}</span></span><button class="secondary edit-user" data-id="${esc(u.user_id)}">✎ Edit</button></div>`,
+        (u, i) => {
+          const isSelf = String(u.user_id) === String(s.user?.user_id);
+          const lastSuper = u.role === "SUPER_ADMIN" && u.active && activeSuperCount <= 1;
+          const lockReason = isSelf ? "Tidak dapat menghapus akun sendiri" : lastSuper ? "SUPER_ADMIN aktif terakhir tidak dapat dihapus" : "";
+          return `<div class="row user-row" style="animation-delay:${Math.min(i, 12) * 40}ms"><span class="cell-num">${i + 1}</span><div class="cell-main"><b>${esc(u.username)}</b><span class="cell-sub">${esc(u.display_name)}</span></div><span><span class="badge ${u.role === "SUPER_ADMIN" ? "gold" : "info"}">${esc(u.role)}</span></span><span><span class="badge ${u.active ? "ok" : "off"}">${u.active ? "Aktif" : "Nonaktif"}</span></span><div class="row-actions"><button class="secondary edit-user" data-id="${esc(u.user_id)}">✎ Edit</button><button class="danger del-user" data-id="${esc(u.user_id)}" title="${esc(lockReason || "Hapus pengguna")}" ${lockReason ? "disabled" : ""}>🗑 Hapus</button></div></div>`;
+        },
       )
       .join("");
   }
@@ -638,6 +748,44 @@
       }
     }
   }
+  async function editTransaction(id) {
+    if (s.editingTrx) return;
+    const rec = s.records.find((x) => String(x.transaction_id) === String(id));
+    if (!rec) return;
+    const res = await formDialog({
+      title: "Edit catatan penerima",
+      message: "Perbarui nama penerima dan catatan. Foto, petugas, dan waktu tidak berubah.",
+      okLabel: "Simpan",
+      fields: [
+        { id: "dlg-name", label: "Nama penerima", value: rec.recipient_name_snapshot, maxlength: 120, placeholder: "cth. Bapak Ahmad", required: true },
+        { id: "dlg-notes", label: "Catatan", value: rec.notes || "", maxlength: 500, textarea: true, placeholder: "cth. THR berupa sembako 1 paket" },
+      ],
+    });
+    if (!res) return;
+    if (!res["dlg-name"]) {
+      toast("Nama penerima wajib diisi.", "error");
+      return;
+    }
+    s.editingTrx = id;
+    setBusyUI();
+    try {
+      await api("update_transaction", {
+        transaction_id: id,
+        recipient_name: res["dlg-name"],
+        notes: res["dlg-notes"],
+      });
+      rec.recipient_name_snapshot = res["dlg-name"];
+      rec.notes = res["dlg-notes"];
+      toast("Catatan berhasil diperbarui.", "success");
+    } catch (e) {
+      if (isSessionError(e)) return clearSession("Sesi berakhir. Silakan masuk kembali.");
+      toast(e.message, "error");
+    } finally {
+      s.editingTrx = "";
+      setBusyUI();
+      render();
+    }
+  }
   async function deleteRecipient(id) {
     if (s.deletingRecipient) return;
     const rec = s.records.find((x) => String(x.recipient_id) === String(id));
@@ -660,6 +808,37 @@
       s.deletingRecipient = "";
       if (isSessionError(e)) return clearSession("Sesi berakhir. Silakan masuk kembali.");
       toast(e.message, "error");
+      render();
+    }
+  }
+  async function deleteUser(id) {
+    if (s.deletingUser) return;
+    if (!s.user || s.user.role !== "SUPER_ADMIN") return;
+    const target = s.users.find((x) => String(x.user_id) === String(id));
+    if (!target) return;
+    if (String(target.user_id) === String(s.user.user_id)) {
+      toast("Tidak dapat menghapus akun sendiri.", "error");
+      return;
+    }
+    const ok = await confirmDialog({
+      title: "Hapus pengguna?",
+      message: `Akun "${target.username}" (${target.display_name}) akan dihapus permanen. Riwayat transaksi, foto bukti, dan audit log tetap tersimpan.`,
+      okLabel: "Ya, hapus akun",
+      danger: true,
+    });
+    if (!ok) return;
+    s.deletingUser = id;
+    setBusyUI();
+    try {
+      await api("delete_user", { user_id: id });
+      s.users = s.users.filter((x) => String(x.user_id) !== String(id));
+      toast(`Pengguna ${target.username} berhasil dihapus.`, "success");
+    } catch (e) {
+      if (isSessionError(e)) return clearSession("Sesi berakhir. Silakan masuk kembali.");
+      toast(e.message, "error");
+    } finally {
+      s.deletingUser = "";
+      setBusyUI();
       render();
     }
   }
@@ -774,6 +953,12 @@
     countUp();
     setBusyUI();
   }
+  function bindRowButtons() {
+    $$(".del-recipient").forEach((b) => (b.onclick = () => deleteRecipient(b.dataset.id)));
+    $$(".del-trx").forEach((b) => (b.onclick = () => deleteTransaction(b.dataset.id)));
+    $$(".edit-trx").forEach((b) => (b.onclick = () => editTransaction(b.dataset.id)));
+    $$(".del-user").forEach((b) => (b.onclick = () => deleteUser(b.dataset.id)));
+  }
   function bindEditButtons() {
     $$(".edit-user").forEach(
       (b) =>
@@ -850,6 +1035,7 @@
         const wrap = $("#user-rows");
         if (wrap) wrap.innerHTML = userRowsHtml();
         bindEditButtons();
+        bindRowButtons();
       };
     });
     if ($("#user-form")) $("#user-form").onsubmit = saveUser;
@@ -882,11 +1068,11 @@
             wrap.innerHTML = rows(
               s.records.filter((x) => `${x.recipient_name_snapshot} ${x.officer_name_snapshot} ${x.notes || ""}`.toLowerCase().includes(q)),
             );
+          bindRowButtons();
         }, 120);
       };
     }
-    $$(".del-recipient").forEach((b) => (b.onclick = () => deleteRecipient(b.dataset.id)));
-    $$(".del-trx").forEach((b) => (b.onclick = () => deleteTransaction(b.dataset.id)));
+    bindRowButtons();
     const p = $("#photo");
     if ($("#photo-trigger") && p) $("#photo-trigger").onclick = () => p.click();
     if (p)
